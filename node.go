@@ -1,7 +1,11 @@
 package raft
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,14 +17,16 @@ import (
 )
 
 type Node struct {
-	NodeID      string
+	NodeID      raft.ServerID
 	SnapshotDir string
 	DatabaseDir string
 	BindAddr    string
 
-	state SharedState
-	raft  *raft.Raft
-	init  bool
+	state         SharedState
+	raft          *raft.Raft
+	transport     raft.Transport
+	snapshotStore raft.SnapshotStore
+	boltStore     *raftboltdb.BoltStore
 }
 
 func nodeWithID() *Node {
@@ -28,50 +34,61 @@ func nodeWithID() *Node {
 	id, _ := uuid.NewV4()
 
 	return &Node{
-		NodeID: id.String(),
+		NodeID: raft.ServerID(id.String()),
 	}
 }
 
-func Join(state SharedState, nodeID, addr string) (*Node, error) {
-	n := nodeWithID()
+func Join(state SharedState, addr, token string) (*Node, error) {
 
-	n.init = false
+	n := nodeWithID()
 	n.state = state
 
 	if err := n.Open(); err != nil {
 		return nil, err
 	}
 
-	configurationFut := n.raft.GetConfiguration()
-	if err := configurationFut.Error(); err != nil {
+	b, err := json.Marshal(map[string]string{"addr": n.BindAddr, "id": string(n.NodeID), "token": token})
+	if err != nil {
 		return nil, err
 	}
 
-	for _, srv := range configurationFut.Configuration().Servers {
-
-		if srv.ID == raft.ServerID(nodeID) || srv.Address == raft.ServerAddress(addr) {
-			if srv.Address == raft.ServerAddress(addr) && srv.ID == raft.ServerID(nodeID) {
-				return nil, nil
-			}
-		}
+	resp, err := http.Post(fmt.Sprintf("http://%s/join", addr), "application-type/json", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
 	}
 
-	return n, nil
+	defer resp.Body.Close()
+
+	return nil, nil
 }
 
 func Init(state SharedState) (*Node, error) {
 	n := nodeWithID()
 
-	n.init = true
 	n.state = state
 
-	return n, n.Open()
+	if err := n.Open(); err != nil {
+		return nil, err
+	}
+
+	configuration := raft.Configuration{
+		Servers: []raft.Server{
+			{
+				ID:      n.NodeID,
+				Address: n.transport.LocalAddr(),
+			},
+		},
+	}
+
+	n.raft.BootstrapCluster(configuration)
+
+	return n, nil
 }
 
 func (n *Node) Open() error {
 
 	config := raft.DefaultConfig()
-	config.LocalID = raft.ServerID(n.NodeID)
+	config.LocalID = n.NodeID
 
 	addr, err := net.ResolveTCPAddr("tcp", n.BindAddr)
 	if err != nil {
@@ -83,15 +100,21 @@ func (n *Node) Open() error {
 		return err
 	}
 
+	n.transport = transport
+
 	snapshots, err := raft.NewFileSnapshotStore(n.SnapshotDir, 2, os.Stderr)
 	if err != nil {
 		return err
 	}
 
+	n.snapshotStore = snapshots
+
 	boltDB, err := raftboltdb.NewBoltStore(filepath.Join(n.DatabaseDir, "log.db"))
 	if err != nil {
 		return err
 	}
+
+	n.boltStore = boltDB
 
 	r, err := raft.NewRaft(config, &fsm{state: n.state}, boltDB, boltDB, snapshots, transport)
 	if err != nil {
@@ -99,19 +122,6 @@ func (n *Node) Open() error {
 	}
 
 	n.raft = r
-
-	if n.init {
-		configuration := raft.Configuration{
-			Servers: []raft.Server{
-				{
-					ID:      config.LocalID,
-					Address: transport.LocalAddr(),
-				},
-			},
-		}
-
-		r.BootstrapCluster(configuration)
-	}
 
 	return nil
 }
