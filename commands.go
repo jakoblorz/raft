@@ -17,8 +17,8 @@ func (j *JoinClusterRequest) GetRPCHeader() raft.RPCHeader {
 type JoinClusterResponse struct {
 	raft.RPCHeader
 
-	Term   uint64
-	Leader []byte
+	LastIndex  uint64
+	LeaderAddr string
 }
 
 func (j *JoinClusterResponse) GetRPCHeader() raft.RPCHeader {

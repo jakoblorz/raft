@@ -1,6 +1,8 @@
 package raft
 
 import (
+	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +26,7 @@ type Node struct {
 	stream        *MuxTCPStreamLayer
 	snapshotStore raft.SnapshotStore
 	boltStore     *raftboltdb.BoltStore
+	logger        *log.Logger
 }
 
 func nodeWithID() *Node {
@@ -50,6 +53,8 @@ func Join(state SharedState, addr, token string) (*Node, error) {
 		RemoteAddr: n.BindAddr,
 	}, &JoinClusterResponse{})
 
+	go n.consume()
+
 	return nil, nil
 }
 
@@ -72,6 +77,8 @@ func Init(state SharedState) (*Node, error) {
 	}
 
 	n.raft.BootstrapCluster(configuration)
+
+	go n.consume()
 
 	return n, nil
 }
@@ -119,4 +126,58 @@ func (n *Node) Open() error {
 	n.raft = r
 
 	return nil
+}
+
+func (n *Node) consume() {
+
+FOR:
+	for {
+		select {
+		case rpc := <-n.stream.consumeCh:
+
+			if join, ok := rpc.Command.(*JoinClusterRequest); ok {
+				n.logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)
+
+				configFuture := n.raft.GetConfiguration()
+				if err := configFuture.Error(); err != nil {
+					n.logger.Printf("[ERR] failed to get raft configuration: %v", err)
+					rpc.Respond(nil, err)
+					continue FOR
+				}
+
+				for _, srv := range configFuture.Configuration().Servers {
+					if srv.ID == raft.ServerID(join.NodeID) || srv.Address == raft.ServerAddress(join.RemoteAddr) {
+
+						if srv.Address == raft.ServerAddress(join.RemoteAddr) && srv.ID == raft.ServerID(join.NodeID) {
+							n.logger.Printf("[WARN] node %s at %s already member of cluster, ignoring join request", join.NodeID, join.RemoteAddr)
+						} else {
+							future := n.raft.RemoveServer(srv.ID, 0, 0)
+							if err := future.Error(); err != nil {
+								err = fmt.Errorf("[ERR] error removing existing node %s at %s: %s", join.NodeID, join.RemoteAddr, err)
+								n.logger.Printf("%s", err)
+								rpc.Respond(nil, err)
+								continue FOR
+							}
+						}
+					}
+				}
+
+				future := n.raft.AddVoter(raft.ServerID(join.NodeID), raft.ServerAddress(join.RemoteAddr), 0, 0)
+				if err := future.Error(); err != nil {
+					err = fmt.Errorf("[ERR] failed to add new voter %s at %s: %s", join.NodeID, join.RemoteAddr, err)
+					n.logger.Printf("%s", err)
+					rpc.Respond(nil, err)
+					continue FOR
+				}
+
+				n.logger.Printf("[INFO] node %s at %s joined successfully", join.NodeID, join.RemoteAddr)
+				rpc.Respond(&JoinClusterResponse{
+					LeaderAddr: string(n.raft.Leader()),
+					LastIndex:  n.raft.LastIndex(),
+				}, nil)
+
+			}
+
+		}
+	}
 }
