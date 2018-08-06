@@ -95,7 +95,7 @@ func (n *Node) Open() error {
 		return err
 	}
 
-	transport, err := raft.NewTCPTransport(n.BindAddr, addr, 3, 10*time.Second, os.Stderr)
+	transport, err := NewMuxTCPTransport(n.BindAddr, addr, 3, 10*time.Second, os.Stderr)
 	if err != nil {
 		return err
 	}
