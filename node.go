@@ -1,11 +1,7 @@
 package raft
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,6 +21,7 @@ type Node struct {
 	state         SharedState
 	raft          *raft.Raft
 	transport     raft.Transport
+	stream        *MuxTCPStreamLayer
 	snapshotStore raft.SnapshotStore
 	boltStore     *raftboltdb.BoltStore
 }
@@ -47,17 +44,11 @@ func Join(state SharedState, addr, token string) (*Node, error) {
 		return nil, err
 	}
 
-	b, err := json.Marshal(map[string]string{"addr": n.BindAddr, "id": string(n.NodeID), "token": token})
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.Post(fmt.Sprintf("http://%s/join", addr), "application-type/json", bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
+	n.stream.JoinCluster(raft.ServerAddress(addr), &JoinClusterRequest{
+		NodeID:     string(n.NodeID),
+		Token:      token,
+		RemoteAddr: n.BindAddr,
+	}, &JoinClusterResponse{})
 
 	return nil, nil
 }
@@ -95,7 +86,11 @@ func (n *Node) Open() error {
 		return err
 	}
 
-	transport, err := NewMuxTCPTransport(n.BindAddr, addr, 3, 10*time.Second, os.Stderr)
+	transport, err := newMuxTCPTransport(n.BindAddr, addr, func(stream raft.StreamLayer) *raft.NetworkTransport {
+		n.stream = stream.(*MuxTCPStreamLayer)
+		return raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
+	})
+
 	if err != nil {
 		return err
 	}
