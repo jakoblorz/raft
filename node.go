@@ -20,13 +20,14 @@ type Node struct {
 	DatabaseDir string
 	BindAddr    string
 
-	state         SharedState
-	raft          *raft.Raft
-	transport     raft.Transport
-	stream        *MuxTCPStreamLayer
-	snapshotStore raft.SnapshotStore
-	boltStore     *raftboltdb.BoltStore
-	logger        *log.Logger
+	raft *raft.Raft
+
+	netTransport *raft.NetworkTransport
+	extTransport *ExtendedTransport
+
+	state SharedState
+
+	logger *log.Logger
 }
 
 func nodeWithID() *Node {
@@ -47,7 +48,7 @@ func Join(state SharedState, addr, token string) (*Node, error) {
 		return nil, err
 	}
 
-	n.stream.JoinCluster(raft.ServerAddress(addr), &JoinClusterRequest{
+	n.extTransport.JoinCluster(raft.ServerAddress(addr), &JoinClusterRequest{
 		NodeID:     string(n.NodeID),
 		Token:      token,
 		RemoteAddr: n.BindAddr,
@@ -71,7 +72,7 @@ func Init(state SharedState) (*Node, error) {
 		Servers: []raft.Server{
 			{
 				ID:      n.NodeID,
-				Address: n.transport.LocalAddr(),
+				Address: n.netTransport.LocalAddr(),
 			},
 		},
 	}
@@ -93,32 +94,26 @@ func (n *Node) Open() error {
 		return err
 	}
 
-	transport, err := newMuxTCPTransport(n.BindAddr, addr, func(stream raft.StreamLayer) *raft.NetworkTransport {
-		n.stream = stream.(*MuxTCPStreamLayer)
-		return raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
-	})
+	netTransport, extTransport, err := NewMuxNetTransport(n.BindAddr, addr, 3, 10*time.Second, os.Stderr)
 
 	if err != nil {
 		return err
 	}
 
-	n.transport = transport
+	n.netTransport = netTransport
+	n.extTransport = extTransport
 
 	snapshots, err := raft.NewFileSnapshotStore(n.SnapshotDir, 2, os.Stderr)
 	if err != nil {
 		return err
 	}
 
-	n.snapshotStore = snapshots
-
 	boltDB, err := raftboltdb.NewBoltStore(filepath.Join(n.DatabaseDir, "log.db"))
 	if err != nil {
 		return err
 	}
 
-	n.boltStore = boltDB
-
-	r, err := raft.NewRaft(config, &fsm{state: n.state}, boltDB, boltDB, snapshots, transport)
+	r, err := raft.NewRaft(config, &fsm{state: n.state}, boltDB, boltDB, snapshots, netTransport)
 	if err != nil {
 		return err
 	}
@@ -133,7 +128,7 @@ func (n *Node) consume() {
 FOR:
 	for {
 		select {
-		case rpc := <-n.stream.consumeCh:
+		case rpc := <-n.extTransport.consumeCh:
 
 			if join, ok := rpc.Command.(*JoinClusterRequest); ok {
 				n.logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)

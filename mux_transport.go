@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/go-msgpack/codec"
 	"github.com/hashicorp/raft"
 )
 
@@ -206,62 +205,16 @@ func (c *bufConn) SetDeadline(t time.Time) error      { return c.conn.SetDeadlin
 func (c *bufConn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
 func (c *bufConn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
 
-type MuxTCPStreamLayer struct {
+type muxTCPStreamLayerFactory struct {
 	advertise net.Addr
-
-	consumeCh chan raft.RPC
 
 	protocolLis *net.TCPListener
 	extendedLis *net.TCPListener
 
 	mux *mux
-
-	logger *log.Logger
-
-	shutdown     bool
-	shutdownCh   chan struct{}
-	shutdownLock sync.Mutex
-
-	timeout time.Duration
 }
 
-func NewMuxTCPTransport(
-	bindAddr string,
-	advertise net.Addr,
-	maxPool int,
-	timeout time.Duration,
-	logOutput io.Writer,
-) (*raft.NetworkTransport, error) {
-	return newMuxTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *raft.NetworkTransport {
-		return raft.NewNetworkTransport(stream, maxPool, timeout, logOutput)
-	})
-}
-
-func NewMuxTCPTransportWithLogger(
-	bindAddr string,
-	advertise net.Addr,
-	maxPool int,
-	timeout time.Duration,
-	logger *log.Logger,
-) (*raft.NetworkTransport, error) {
-	return newMuxTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *raft.NetworkTransport {
-		return raft.NewNetworkTransportWithLogger(stream, maxPool, timeout, logger)
-	})
-}
-
-func NewMuxTCPTransportWithConfig(
-	bindAddr string,
-	advertise net.Addr,
-	config *raft.NetworkTransportConfig,
-) (*raft.NetworkTransport, error) {
-	return newMuxTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *raft.NetworkTransport {
-		return raft.NewNetworkTransportWithConfig(config)
-	})
-}
-
-func newMuxTCPTransport(bindAddr string,
-	advertise net.Addr,
-	transportCreator func(stream raft.StreamLayer) *raft.NetworkTransport) (*raft.NetworkTransport, error) {
+func newMuxTCPStreamLayerFactory(bindAddr string, advertise net.Addr) (*muxTCPStreamLayerFactory, error) {
 	list, err := net.Listen("tcp", bindAddr)
 	if err != nil {
 		return nil, err
@@ -270,242 +223,86 @@ func newMuxTCPTransport(bindAddr string,
 	mux := newMultiplexer(list)
 	go mux.Serve()
 
-	stream := &MuxTCPStreamLayer{
+	stream := &muxTCPStreamLayerFactory{
 		advertise:   advertise,
 		protocolLis: (mux.Listen(protocolHeaders)).(*net.TCPListener),
 		extendedLis: (mux.Listen(extendedHeaders)).(*net.TCPListener),
 		mux:         mux,
 	}
 
-	addr, ok := stream.Addr().(*net.TCPAddr)
+	if advertise == nil {
+		advertise = list.Addr()
+	}
+
+	addr, ok := advertise.(*net.TCPAddr)
 	if !ok {
-		list.Close()
+		mux.Close()
 		return nil, errNotTCP
 	}
 
 	if addr.IP.IsUnspecified() {
-		list.Close()
+		mux.Close()
 		return nil, errNotAdvertisable
 	}
 
-	go stream.listen()
-
-	return transportCreator(stream), nil
+	return stream, nil
 }
 
-func (t *MuxTCPStreamLayer) listen() error {
-
-	for {
-		conn, err := t.extendedLis.Accept()
-		if err != nil {
-			t.logger.Printf("[ERR] raft-net extension: Failed to accept connection: %v", err)
-			continue
-		}
-
-		t.logger.Printf("[DEBUG] raft-net extension: %v accepted connection from: %v", t.Addr().String(), conn.RemoteAddr())
-
-		go t.handleConn(conn)
+func (m *muxTCPStreamLayerFactory) ProtocolStreamLayer() raft.StreamLayer {
+	return &muxTCPListenerWrapper{
+		advertise: m.advertise,
+		listener:  m.protocolLis,
+		mux:       m.mux,
 	}
 }
 
-func (t *MuxTCPStreamLayer) handleConn(conn net.Conn) {
-	defer conn.Close()
-
-	r := bufio.NewReader(conn)
-	w := bufio.NewWriter(conn)
-	dec := codec.NewDecoder(r, &codec.MsgpackHandle{})
-	enc := codec.NewEncoder(w, &codec.MsgpackHandle{})
-
-	for {
-		if err := t.handleCommand(r, dec, enc); err != nil {
-			if err != io.EOF {
-				t.logger.Printf("[ERR] raft-net extension: Failed to decode incoming command: %v", err)
-			}
-			return
-		}
-		if err := w.Flush(); err != nil {
-			t.logger.Printf("[ERR] raft-net extension: Failed to flush response: %v", err)
-			return
-		}
+func (m *muxTCPStreamLayerFactory) ExtendedStreamLayer() raft.StreamLayer {
+	return &muxTCPListenerWrapper{
+		advertise: m.advertise,
+		listener:  m.extendedLis,
+		mux:       m.mux,
 	}
 }
 
-func (t *MuxTCPStreamLayer) handleCommand(r *bufio.Reader, dec *codec.Decoder, enc *codec.Encoder) error {
+type muxTCPListenerWrapper struct {
+	advertise net.Addr
 
-	rpcType, err := r.ReadByte()
+	listener *net.TCPListener
+	mux      *mux
+}
+
+func NewMuxNetTransport(
+	bindAddr string,
+	advertise net.Addr,
+	maxPool int,
+	timeout time.Duration,
+	logOutput io.Writer,
+) (*raft.NetworkTransport, *ExtendedTransport, error) {
+	stream, err := newMuxTCPStreamLayerFactory(bindAddr, advertise)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-
-	respCh := make(chan raft.RPCResponse, 1)
-	rpc := raft.RPC{
-		RespChan: respCh,
-	}
-
-	switch rpcType {
-	case rpcJoinCluster:
-		var req JoinClusterRequest
-		if err := dec.Decode(&req); err != nil {
-			return err
-		}
-		rpc.Command = &req
-	default:
-		return fmt.Errorf("unknown rpc type %d", rpcType)
-	}
-
-	select {
-	case t.consumeCh <- rpc:
-	case <-t.shutdownCh:
-		return raft.ErrTransportShutdown
-	}
-
-	select {
-	case resp := <-respCh:
-		respErr := ""
-		if resp.Error != nil {
-			respErr = resp.Error.Error()
-		}
-		if err := enc.Encode(respErr); err != nil {
-			return err
-		}
-
-		if err := enc.Encode(resp.Response); err != nil {
-			return err
-		}
-	case <-t.shutdownCh:
-		return raft.ErrTransportShutdown
-	}
-
-	return nil
+	return raft.NewNetworkTransport(stream.ProtocolStreamLayer(), maxPool, timeout, logOutput),
+		NewExtendedTransport(stream.ExtendedStreamLayer(), maxPool, timeout, logOutput),
+		nil
 }
 
-func (t *MuxTCPStreamLayer) genericRPC(target raft.ServerAddress, rpcType uint8, args interface{}, resp interface{}) error {
-
-	conn, err := t.getConn(target)
-	if err != nil {
-		return nil
-	}
-
-	defer conn.Release()
-
-	if t.timeout > 0 {
-		conn.conn.SetDeadline(time.Now().Add(t.timeout))
-	}
-
-	if err = sendRPC(conn, rpcType, args); err != nil {
-		return err
-	}
-
-	_, err = decodeResponse(conn, resp)
-
-	return err
-
-}
-
-func (t *MuxTCPStreamLayer) getConn(target raft.ServerAddress) (*netConn, error) {
-
-	conn, err := t.Dial(target, t.timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	netConn := &netConn{
-		target: target,
-		conn:   conn,
-		r:      bufio.NewReader(conn),
-		w:      bufio.NewWriter(conn),
-	}
-
-	netConn.dec = codec.NewDecoder(netConn.r, &codec.MsgpackHandle{})
-	netConn.enc = codec.NewEncoder(netConn.w, &codec.MsgpackHandle{})
-
-	return netConn, nil
-}
-
-func (t *MuxTCPStreamLayer) JoinCluster(target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
-	return t.genericRPC(target, rpcJoinCluster, args, resp)
-}
-
-func (t *MuxTCPStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
+func (t *muxTCPListenerWrapper) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
 	return net.DialTimeout("tcp", string(address), timeout)
 }
 
-func (t *MuxTCPStreamLayer) Accept() (c net.Conn, err error) {
-	return t.protocolLis.Accept()
+func (t *muxTCPListenerWrapper) Accept() (c net.Conn, err error) {
+	return t.listener.Accept()
 }
 
-func (t *MuxTCPStreamLayer) Close() (err error) {
-	t.shutdownLock.Lock()
-	defer t.shutdownLock.Unlock()
-
-	if !t.shutdown {
-		close(t.shutdownCh)
-		if err := t.mux.Close(); err != nil {
-			return err
-		}
-		t.shutdown = true
-	}
-
-	return nil
+func (t *muxTCPListenerWrapper) Close() (err error) {
+	return t.mux.Close()
 }
 
-func (t *MuxTCPStreamLayer) Addr() net.Addr {
+func (t *muxTCPListenerWrapper) Addr() net.Addr {
 	if t.advertise != nil {
 		return t.advertise
 	}
 
-	return t.protocolLis.Addr()
-}
-
-func sendRPC(conn *netConn, rpcType uint8, args interface{}) error {
-
-	if err := conn.w.WriteByte(rpcType); err != nil {
-		conn.Release()
-		return err
-	}
-
-	if err := conn.enc.Encode(args); err != nil {
-		conn.Release()
-		return err
-	}
-
-	if err := conn.w.Flush(); err != nil {
-		conn.Release()
-		return err
-	}
-
-	return nil
-}
-
-func decodeResponse(conn *netConn, resp interface{}) (bool, error) {
-
-	var rpcError string
-	if err := conn.dec.Decode(&rpcError); err != nil {
-		conn.Release()
-		return false, err
-	}
-
-	if err := conn.dec.Decode(resp); err != nil {
-		conn.Release()
-		return false, err
-	}
-
-	if rpcError != "" {
-		return true, fmt.Errorf(rpcError)
-	}
-
-	return true, nil
-}
-
-type netConn struct {
-	target raft.ServerAddress
-	conn   net.Conn
-	r      *bufio.Reader
-	w      *bufio.Writer
-	dec    *codec.Decoder
-	enc    *codec.Encoder
-}
-
-func (n *netConn) Release() error {
-	return n.conn.Close()
+	return t.listener.Addr()
 }
