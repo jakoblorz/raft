@@ -10,24 +10,11 @@ import (
 	"os"
 	"sync"
 	"time"
-
-	"github.com/hashicorp/raft"
-)
-
-const (
-	rpcAppendEntries uint8 = iota
-	rpcRequestVote
-	rpcInstallSnapshot
-	_
-	rpcJoinCluster
 )
 
 var (
 	protocolHeaders = []byte{rpcAppendEntries, rpcRequestVote, rpcInstallSnapshot}
 	extendedHeaders = []byte{rpcJoinCluster}
-
-	errNotAdvertisable = errors.New("local bind address is not advertisable")
-	errNotTCP          = errors.New("local address is not a TCP address")
 )
 
 // Mux represents a multiplexer for a net.Listener.
@@ -204,105 +191,3 @@ func (c *bufConn) RemoteAddr() net.Addr               { return c.conn.RemoteAddr
 func (c *bufConn) SetDeadline(t time.Time) error      { return c.conn.SetDeadline(t) }
 func (c *bufConn) SetReadDeadline(t time.Time) error  { return c.conn.SetReadDeadline(t) }
 func (c *bufConn) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
-
-type muxTCPStreamLayerFactory struct {
-	advertise net.Addr
-
-	protocolLis *net.TCPListener
-	extendedLis *net.TCPListener
-
-	mux *mux
-}
-
-func newMuxTCPStreamLayerFactory(bindAddr string, advertise net.Addr) (*muxTCPStreamLayerFactory, error) {
-	list, err := net.Listen("tcp", bindAddr)
-	if err != nil {
-		return nil, err
-	}
-
-	mux := newMultiplexer(list)
-	go mux.Serve()
-
-	stream := &muxTCPStreamLayerFactory{
-		advertise:   advertise,
-		protocolLis: (mux.Listen(protocolHeaders)).(*net.TCPListener),
-		extendedLis: (mux.Listen(extendedHeaders)).(*net.TCPListener),
-		mux:         mux,
-	}
-
-	if advertise == nil {
-		advertise = list.Addr()
-	}
-
-	addr, ok := advertise.(*net.TCPAddr)
-	if !ok {
-		mux.Close()
-		return nil, errNotTCP
-	}
-
-	if addr.IP.IsUnspecified() {
-		mux.Close()
-		return nil, errNotAdvertisable
-	}
-
-	return stream, nil
-}
-
-func (m *muxTCPStreamLayerFactory) ProtocolStreamLayer() raft.StreamLayer {
-	return &muxTCPListenerWrapper{
-		advertise: m.advertise,
-		listener:  m.protocolLis,
-		mux:       m.mux,
-	}
-}
-
-func (m *muxTCPStreamLayerFactory) ExtendedStreamLayer() raft.StreamLayer {
-	return &muxTCPListenerWrapper{
-		advertise: m.advertise,
-		listener:  m.extendedLis,
-		mux:       m.mux,
-	}
-}
-
-type muxTCPListenerWrapper struct {
-	advertise net.Addr
-
-	listener *net.TCPListener
-	mux      *mux
-}
-
-func NewMuxNetTransport(
-	bindAddr string,
-	advertise net.Addr,
-	maxPool int,
-	timeout time.Duration,
-	logOutput io.Writer,
-) (*raft.NetworkTransport, *ExtendedTransport, error) {
-	stream, err := newMuxTCPStreamLayerFactory(bindAddr, advertise)
-	if err != nil {
-		return nil, nil, err
-	}
-	return raft.NewNetworkTransport(stream.ProtocolStreamLayer(), maxPool, timeout, logOutput),
-		NewExtendedTransport(stream.ExtendedStreamLayer(), maxPool, timeout, logOutput),
-		nil
-}
-
-func (t *muxTCPListenerWrapper) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout("tcp", string(address), timeout)
-}
-
-func (t *muxTCPListenerWrapper) Accept() (c net.Conn, err error) {
-	return t.listener.Accept()
-}
-
-func (t *muxTCPListenerWrapper) Close() (err error) {
-	return t.mux.Close()
-}
-
-func (t *muxTCPListenerWrapper) Addr() net.Addr {
-	if t.advertise != nil {
-		return t.advertise
-	}
-
-	return t.listener.Addr()
-}
