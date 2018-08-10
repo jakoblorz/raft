@@ -1,5 +1,7 @@
 package raft
 
+// copied from https://github.com/flynn/flynn/blob/master/pkg/mux/mux.go
+
 import (
 	"bufio"
 	"errors"
