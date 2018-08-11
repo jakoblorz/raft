@@ -19,7 +19,7 @@ type MessageNotificator interface {
 	Notify(interface{}) (interface{}, error)
 }
 
-type RPCInterface func(raft.ServerID, raft.ServerAddress, uint8, interface{}, interface{}) error
+type RPCInterface func(*RemoteNode, uint8, interface{}, interface{}) error
 
 type InterfaceReceiver interface {
 	ReceiveInterface(RPCInterface)

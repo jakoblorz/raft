@@ -23,6 +23,11 @@ const (
 	RPCHeaderOffset = rpcJoinCluster + 1
 )
 
+type RemoteNode struct {
+	ID      raft.ServerID
+	Address raft.ServerAddress
+}
+
 type Node struct {
 	NodeID      raft.ServerID
 	SnapshotDir string
@@ -97,13 +102,13 @@ func (n *Node) prepare(cProtocol MessageProtocol) error {
 	n.raft = r
 	protocol.joinProtoc.raft = r
 
-	protocol.ReceiveInterface(func(id raft.ServerID, addr raft.ServerAddress, t uint8, args interface{}, resp interface{}) error {
+	protocol.ReceiveInterface(func(r *RemoteNode, t uint8, args interface{}, resp interface{}) error {
 
 		if t < RPCHeaderOffset {
 			return errors.New("cannot send message with raft specific header")
 		}
 
-		return n.transport.genericRPC(id, addr, t, args, resp)
+		return n.transport.genericRPC(r.ID, r.Address, t, args, resp)
 	})
 
 	n.protocol = protocol
@@ -135,6 +140,22 @@ func (n *Node) Apply(cmd []byte, timeout time.Duration) error {
 
 func (n *Node) GetToken() string {
 	return n.token
+}
+
+func (n *Node) GetRemoteNodes() ([]*RemoteNode, error) {
+
+	configFuture := n.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		n.logger.Printf("[ERR] failed to get raft configuration: %v", err)
+		return nil, err
+	}
+
+	nodes := make([]*RemoteNode, 0)
+	for _, srv := range configFuture.Configuration().Servers {
+		nodes = append(nodes, &RemoteNode{Address: srv.Address, ID: srv.ID})
+	}
+
+	return nodes, nil
 }
 
 func nodeWithID(state SharedState) *Node {
