@@ -371,22 +371,22 @@ func (n *ExtendedTransport) AppendEntriesPipeline(id raft.ServerID, target raft.
 
 // AppendEntries implements the Transport interface.
 func (n *ExtendedTransport) AppendEntries(id raft.ServerID, target raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
-	return n.GenericRPC(id, target, rpcAppendEntries, args, resp)
+	return n.genericRPC(id, target, rpcAppendEntries, args, resp)
 }
 
 // RequestVote implements the Transport interface.
 func (n *ExtendedTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
-	return n.GenericRPC(id, target, rpcRequestVote, args, resp)
+	return n.genericRPC(id, target, rpcRequestVote, args, resp)
 }
 
 // JoinCluster implements a method to inform an existing cluster
 // that a node wants to join
 func (n *ExtendedTransport) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
-	return n.GenericRPC(id, target, rpcJoinCluster, args, resp)
+	return n.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 
-// GenericRPC handles a simple request/response raft.RPC.
-func (n *ExtendedTransport) GenericRPC(id raft.ServerID, target raft.ServerAddress, rpcType uint8, args interface{}, resp interface{}) error {
+// genericRPC handles a simple request/response raft.RPC.
+func (n *ExtendedTransport) genericRPC(id raft.ServerID, target raft.ServerAddress, rpcType uint8, args interface{}, resp interface{}) error {
 	// Get a conn
 	conn, err := n.getConnFromAddressProvider(id, target)
 	if err != nil {
