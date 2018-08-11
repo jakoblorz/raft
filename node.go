@@ -80,8 +80,9 @@ func (n *Node) prepare(cProtocol MessageProtocol) error {
 	n.consumeCh = transport.CustomConsumeCh()
 	n.logger = transport.logger
 
-	// setting logger
+	// setting logger & localAddr
 	protocol.joinProtoc.logger = transport.logger
+	protocol.joinProtoc.localAddr = transport.LocalAddr()
 
 	snapshots, err := raft.NewFileSnapshotStore(n.SnapshotDir, 2, os.Stderr)
 	if err != nil {

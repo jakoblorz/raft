@@ -32,9 +32,11 @@ type MessageProtocol interface {
 }
 
 type joinRPCMatcher struct {
-	raft   *raft.Raft
-	logger *log.Logger
-	token  string
+	raft      *raft.Raft
+	logger    *log.Logger
+	token     string
+	localAddr raft.ServerAddress
+	rpc       RPCInterface
 }
 
 func (j *joinRPCMatcher) Match(rpcType uint8) (interface{}, bool) {
@@ -51,6 +53,20 @@ func (j *joinRPCMatcher) Notify(req interface{}) (interface{}, error) {
 
 	if join, ok := req.(*JoinClusterRequest); ok {
 		j.logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)
+
+		if join.Token != j.token {
+			err := fmt.Errorf("[ERR] join request contained wrong join token %s", join.Token)
+			j.logger.Printf("%s", err)
+			return nil, err
+		}
+
+		if leader := j.raft.Leader(); leader != j.localAddr {
+			j.logger.Printf("[INFO] this is not a leader, join request will be forwarded to leader at %s", leader)
+
+			var res = &JoinClusterResponse{}
+			err := j.rpc(&RemoteNode{Address: leader}, rpcJoinCluster, req, res)
+			return res, err
+		}
 
 		configFuture := j.raft.GetConfiguration()
 		if err := configFuture.Error(); err != nil {
@@ -89,6 +105,10 @@ func (j *joinRPCMatcher) Notify(req interface{}) (interface{}, error) {
 	}
 
 	return nil, nil
+}
+
+func (j *joinRPCMatcher) ReceiveInterface(rpc RPCInterface) {
+	j.rpc = rpc
 }
 
 type customRPCWrapper struct {
@@ -133,6 +153,8 @@ func (c *customRPCWrapper) Notify(i interface{}) (interface{}, error) {
 }
 
 func (c *customRPCWrapper) ReceiveInterface(i RPCInterface) {
+	c.joinProtoc.ReceiveInterface(i)
+
 	if c.custProtoc != nil {
 		c.custProtoc.ReceiveInterface(i)
 	}
