@@ -51,15 +51,19 @@ func (j *joinRPCMatcher) Match(rpcType uint8) (interface{}, bool) {
 
 func (j *joinRPCMatcher) Notify(req interface{}) (interface{}, error) {
 
+	// check if the req can be parsed to a JoinClusterRequest pointer
 	if join, ok := req.(*JoinClusterRequest); ok {
 		j.logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)
 
+		// compare tokens; in case this node is a leader or a
+		// follower, the node will have to correct token locally
 		if join.Token != j.token {
 			err := fmt.Errorf("[ERR] join request contained wrong join token %s", join.Token)
 			j.logger.Printf("%s", err)
 			return nil, err
 		}
 
+		// only leaders can add new nodes to the cluster
 		if leader := j.raft.Leader(); leader != j.localAddr {
 			j.logger.Printf("[INFO] this is not a leader, join request will be forwarded to leader at %s", leader)
 
@@ -68,6 +72,7 @@ func (j *joinRPCMatcher) Notify(req interface{}) (interface{}, error) {
 			return res, err
 		}
 
+		// obtain configuration about registered nodes
 		configFuture := j.raft.GetConfiguration()
 		if err := configFuture.Error(); err != nil {
 			j.logger.Printf("[ERR] failed to get raft configuration: %v", err)

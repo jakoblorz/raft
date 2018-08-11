@@ -1,15 +1,16 @@
 package raft
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/hashicorp/raft"
 )
 
 type SharedState interface {
-	Apply([]byte)
-	Encode() []byte
-	Decode(r io.ReadCloser)
+	Apply(io.Reader)
+	Encode(io.Writer) error
+	Decode(io.Reader) error
 }
 
 type fsm struct {
@@ -17,7 +18,7 @@ type fsm struct {
 }
 
 func (f *fsm) Apply(l *raft.Log) interface{} {
-	f.state.Apply(l.Data)
+	f.state.Apply(bytes.NewReader(l.Data))
 	return nil
 }
 
@@ -26,6 +27,8 @@ func (f *fsm) Snapshot() (raft.FSMSnapshot, error) {
 }
 
 func (f *fsm) Restore(r io.ReadCloser) error {
+	defer r.Close()
+
 	f.state.Decode(r)
 	return nil
 }
@@ -33,7 +36,12 @@ func (f *fsm) Restore(r io.ReadCloser) error {
 func (f *fsm) Persist(sink raft.SnapshotSink) error {
 
 	err := func() error {
-		if _, err := sink.Write(f.state.Encode()); err != nil {
+
+		if err := f.state.Encode(sink); err != nil {
+			return err
+		}
+
+		if err := sink.Close(); err != nil {
 			return err
 		}
 

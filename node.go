@@ -204,7 +204,6 @@ func Init(state SharedState, customProtocol MessageProtocol) (*Node, string, err
 	n := nodeWithID(state)
 
 	tk, _ := uuid.NewV4()
-
 	n.token = base64.StdEncoding.EncodeToString(tk.Bytes())
 
 	if err := n.prepare(customProtocol); err != nil {
