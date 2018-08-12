@@ -15,8 +15,8 @@ var (
 	errNotTCP          = errors.New("local address is not a TCP address")
 )
 
-// TCPStreamLayer implements StreamLayer interface for plain TCP.
-type TCPStreamLayer struct {
+// tcpStreamLayer implements StreamLayer interface for plain TCP.
+type tcpStreamLayer struct {
 	advertise net.Addr
 	listener  *net.TCPListener
 }
@@ -30,8 +30,8 @@ func NewTCPTransport(
 	maxPool int,
 	timeout time.Duration,
 	logOutput io.Writer,
-) (*ExtendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *ExtendedTransport {
+) (*extendedTransport, error) {
+	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		return NewExtendedTransport(stream, matcher, maxPool, timeout, logOutput)
 	})
 }
@@ -45,8 +45,8 @@ func NewTCPTransportWithLogger(
 	maxPool int,
 	timeout time.Duration,
 	logger *log.Logger,
-) (*ExtendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *ExtendedTransport {
+) (*extendedTransport, error) {
+	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		return NewExtendedTransportWithLogger(stream, matcher, maxPool, timeout, logger)
 	})
 }
@@ -57,8 +57,8 @@ func NewTCPTransportWithConfig(
 	bindAddr string,
 	advertise net.Addr,
 	config *ExtendedTransportConfig,
-) (*ExtendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *ExtendedTransport {
+) (*extendedTransport, error) {
+	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		config.Stream = stream
 		return NewExtendedTransportWithConfig(config)
 	})
@@ -66,7 +66,7 @@ func NewTCPTransportWithConfig(
 
 func newTCPTransport(bindAddr string,
 	advertise net.Addr,
-	transportCreator func(stream raft.StreamLayer) *ExtendedTransport) (*ExtendedTransport, error) {
+	transportCreator func(stream raft.StreamLayer) *extendedTransport) (*extendedTransport, error) {
 	// Try to bind
 	list, err := net.Listen("tcp", bindAddr)
 	if err != nil {
@@ -74,7 +74,7 @@ func newTCPTransport(bindAddr string,
 	}
 
 	// Create stream
-	stream := &TCPStreamLayer{
+	stream := &tcpStreamLayer{
 		advertise: advertise,
 		listener:  list.(*net.TCPListener),
 	}
@@ -96,22 +96,22 @@ func newTCPTransport(bindAddr string,
 }
 
 // Dial implements the StreamLayer interface.
-func (t *TCPStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
+func (t *tcpStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
 	return net.DialTimeout("tcp", string(address), timeout)
 }
 
 // Accept implements the net.Listener interface.
-func (t *TCPStreamLayer) Accept() (c net.Conn, err error) {
+func (t *tcpStreamLayer) Accept() (c net.Conn, err error) {
 	return t.listener.Accept()
 }
 
 // Close implements the net.Listener interface.
-func (t *TCPStreamLayer) Close() (err error) {
+func (t *tcpStreamLayer) Close() (err error) {
 	return t.listener.Close()
 }
 
 // Addr implements the net.Listener interface.
-func (t *TCPStreamLayer) Addr() net.Addr {
+func (t *tcpStreamLayer) Addr() net.Addr {
 	// Use an advertise addr if provided
 	if t.advertise != nil {
 		return t.advertise

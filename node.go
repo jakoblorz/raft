@@ -23,12 +23,20 @@ const (
 	RPCHeaderOffset = rpcJoinCluster + 1
 )
 
-type RemoteNode struct {
+type remoteNode struct {
 	ID      raft.ServerID
 	Address raft.ServerAddress
 }
 
-type Node struct {
+func (r *remoteNode) GetID() string {
+	return string(r.ID)
+}
+
+func (r *remoteNode) GetAddress() string {
+	return string(r.Address)
+}
+
+type localNode struct {
 	NodeID      raft.ServerID
 	SnapshotDir string
 	DatabaseDir string
@@ -39,7 +47,7 @@ type Node struct {
 	raft *raft.Raft
 
 	token     string
-	transport *ExtendedTransport
+	transport *extendedTransport
 	protocol  MessageProtocol
 
 	state SharedState
@@ -47,7 +55,9 @@ type Node struct {
 	logger *log.Logger
 }
 
-func (n *Node) prepare(cProtocol MessageProtocol) error {
+func (n *localNode) prepare(cProtocol MessageProtocol) error {
+
+	logger := log.New(os.Stderr, "", log.LstdFlags)
 
 	config := raft.DefaultConfig()
 	config.LocalID = n.NodeID
@@ -61,17 +71,20 @@ func (n *Node) prepare(cProtocol MessageProtocol) error {
 		return errors.New("token not set")
 	}
 
-	// remember to set logger and raft implementation
-	protocol := &customRPCWrapper{
-		joinProtoc: &joinRPCMatcher{
-			logger: nil,
-			raft:   nil,
-			token:  n.token,
-		},
+	jProtocol := &joinProtocol{
+		addr:   advertise.String(),
+		token:  n.token,
+		Logger: logger,
+	}
+
+	protocol := &protocolWrapper{
+		joinProtoc: jProtocol,
 		custProtoc: cProtocol,
 	}
 
-	transport, err := NewTCPTransport(n.BindAddr, advertise, protocol, 3, 10*time.Second, os.Stderr)
+	n.state = protocol.SharedState()
+
+	transport, err := NewTCPTransportWithLogger(n.BindAddr, advertise, protocol, 3, 10*time.Second, logger)
 	if err != nil {
 		return err
 	}
@@ -79,10 +92,6 @@ func (n *Node) prepare(cProtocol MessageProtocol) error {
 	n.transport = transport
 	n.consumeCh = transport.CustomConsumeCh()
 	n.logger = transport.logger
-
-	// setting logger & localAddr
-	protocol.joinProtoc.logger = transport.logger
-	protocol.joinProtoc.localAddr = transport.LocalAddr()
 
 	snapshots, err := raft.NewFileSnapshotStore(n.SnapshotDir, 2, os.Stderr)
 	if err != nil {
@@ -101,23 +110,15 @@ func (n *Node) prepare(cProtocol MessageProtocol) error {
 
 	// setting raft
 	n.raft = r
-	protocol.joinProtoc.raft = r
+	jProtocol.raft = r
 
-	protocol.ReceiveInterface(func(r *RemoteNode, t uint8, args interface{}, resp interface{}) error {
-
-		if t < RPCHeaderOffset {
-			return errors.New("cannot send message with raft specific header")
-		}
-
-		return n.transport.genericRPC(r.ID, r.Address, t, args, resp)
-	})
-
+	protocol.ReceiveLocalNode(n)
 	n.protocol = protocol
 
 	return nil
 }
 
-func (n *Node) listen() {
+func (n *localNode) listen() {
 
 	for {
 		if n.consumeCh != nil {
@@ -131,19 +132,24 @@ func (n *Node) listen() {
 	}
 }
 
-func (n *Node) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
+func (n *localNode) join(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
 	return n.transport.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 
-func (n *Node) Apply(cmd []byte, timeout time.Duration) error {
-	return n.raft.Apply(cmd, timeout).Error()
+func (n *localNode) AppendLogMessage(m []byte, t time.Duration) error {
+	return n.raft.Apply(m, t).Error()
 }
 
-func (n *Node) GetToken() string {
-	return n.token
+func (n *localNode) RemoteProcedureCall(r RemoteNode, t uint8, a interface{}, res interface{}) error {
+
+	if t < RPCHeaderOffset {
+		return errors.New("cannot send message with raft specific header")
+	}
+
+	return n.transport.genericRPC(raft.ServerID(r.GetID()), raft.ServerAddress(r.GetAddress()), t, a, res)
 }
 
-func (n *Node) GetRemoteNodes() ([]*RemoteNode, error) {
+func (n *localNode) RemoteNodes() ([]RemoteNode, error) {
 
 	configFuture := n.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
@@ -151,63 +157,65 @@ func (n *Node) GetRemoteNodes() ([]*RemoteNode, error) {
 		return nil, err
 	}
 
-	nodes := make([]*RemoteNode, 0)
+	nodes := make([]RemoteNode, 0)
 	for _, srv := range configFuture.Configuration().Servers {
-		nodes = append(nodes, &RemoteNode{Address: srv.Address, ID: srv.ID})
+		nodes = append(nodes, &remoteNode{Address: srv.Address, ID: srv.ID})
 	}
 
 	return nodes, nil
 }
 
-func nodeWithID(state SharedState) *Node {
+func nodeWithID() *localNode {
 
 	id, _ := uuid.NewV4()
 
-	n := &Node{
+	n := &localNode{
 		NodeID: raft.ServerID(id.String()),
 	}
-
-	n.state = state
 
 	return n
 }
 
-// Join creates a new Node and tries to connect it to an existing cluster
+// Join creates a new localNode and tries to connect it to an existing cluster
 // of raft nodes
-func Join(state SharedState, customProtocol MessageProtocol, addr, token string) (*Node, error) {
+func Join(customProtocol MessageProtocol, addr, token string) error {
 
-	n := nodeWithID(state)
+	n := nodeWithID()
 
 	n.token = token
 
 	if err := n.prepare(customProtocol); err != nil {
-		return nil, err
+		return err
 	}
 
-	err := n.JoinCluster(raft.ServerID(""), raft.ServerAddress(addr), &JoinClusterRequest{
-		NodeID:     string(n.NodeID),
-		Token:      token,
-		RemoteAddr: n.BindAddr,
-	}, &JoinClusterResponse{})
+	err := n.join(
+		raft.ServerID(""),
+		raft.ServerAddress(addr),
+		&JoinClusterRequest{
+			NodeID:     string(n.NodeID),
+			Token:      token,
+			RemoteAddr: n.BindAddr,
+		},
+		&JoinClusterResponse{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	go n.listen()
 
-	return nil, nil
+	return nil
 }
 
-// Init creates a new Node which seeds a new cluster of raft nodes;
+// Init creates a new localNode which seeds a new cluster of raft nodes;
 // each consecutive raft node needs the token to connect to this node
-func Init(state SharedState, customProtocol MessageProtocol) (*Node, string, error) {
-	n := nodeWithID(state)
+func Init(customProtocol MessageProtocol) (string, error) {
+	n := nodeWithID()
 
 	tk, _ := uuid.NewV4()
 	n.token = base64.StdEncoding.EncodeToString(tk.Bytes())
 
 	if err := n.prepare(customProtocol); err != nil {
-		return nil, "", err
+		return "", err
 	}
 
 	configuration := raft.Configuration{
@@ -223,5 +231,5 @@ func Init(state SharedState, customProtocol MessageProtocol) (*Node, string, err
 
 	go n.listen()
 
-	return n, n.token, nil
+	return n.token, nil
 }

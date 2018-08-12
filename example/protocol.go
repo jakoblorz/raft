@@ -16,7 +16,7 @@ const (
 )
 
 type Protocol struct {
-	rpc raft.RPCInterface `codec:"-"`
+	node raft.LocalNode `codec:"-"`
 
 	valueLock sync.Mutex `codec:"-"`
 	values    map[string]interface{}
@@ -34,6 +34,10 @@ func (p *Protocol) get(key string) interface{} {
 	defer p.valueLock.Unlock()
 
 	return p.values[key]
+}
+
+func (p *Protocol) SharedState() raft.SharedState {
+	return p
 }
 
 func (p *Protocol) Apply(r io.Reader) {
@@ -92,7 +96,7 @@ func (p *Protocol) Notify(req interface{}) (interface{}, error) {
 		enc := codec.NewEncoderBytes(&b, &codec.MsgpackHandle{})
 		enc.Encode(&command)
 
-		err := node.Apply(b, raft.DefaultTimeoutScale*time.Second)
+		err := p.node.AppendLogMessage(b, raft.DefaultTimeoutScale*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -105,6 +109,6 @@ func (p *Protocol) Notify(req interface{}) (interface{}, error) {
 	return nil, errors.New("request could not be identified")
 }
 
-func (p *Protocol) ReceiveInterface(rpc raft.RPCInterface) {
-	p.rpc = rpc
+func (p *Protocol) ReceiveLocalNode(node raft.LocalNode) {
+	p.node = node
 }

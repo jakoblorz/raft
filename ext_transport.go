@@ -32,7 +32,7 @@ const (
 
 /*
 
-ExtendedTransport provides a network based transport that can be
+extendedTransport provides a network based transport that can be
 used to communicate with Raft on remote machines. It requires
 an underlying stream layer to provide a stream abstraction, which can
 be simple TCP, TLS, etc.
@@ -49,7 +49,7 @@ the entire state. That socket is not re-used as the connection state
 is not known if there is an error.
 
 */
-type ExtendedTransport struct {
+type extendedTransport struct {
 	connPool     map[raft.ServerAddress][]*netConn
 	connPoolLock sync.Mutex
 
@@ -117,7 +117,7 @@ func (n *netConn) Release() error {
 
 type netPipeline struct {
 	conn  *netConn
-	trans *ExtendedTransport
+	trans *extendedTransport
 
 	doneCh       chan raft.AppendFuture
 	inprogressCh chan *appendFuture
@@ -130,11 +130,11 @@ type netPipeline struct {
 // NewExtendedTransportWithConfig creates a new network transport with the given config struct
 func NewExtendedTransportWithConfig(
 	config *ExtendedTransportConfig,
-) *ExtendedTransport {
+) *extendedTransport {
 	if config.Logger == nil {
 		config.Logger = log.New(os.Stderr, "", log.LstdFlags)
 	}
-	trans := &ExtendedTransport{
+	trans := &extendedTransport{
 		connPool:              make(map[raft.ServerAddress][]*netConn),
 		raftConsumeCh:         make(chan raft.RPC),
 		custConsumeCh:         make(chan raft.RPC),
@@ -165,7 +165,7 @@ func NewExtendedTransport(
 	maxPool int,
 	timeout time.Duration,
 	logOutput io.Writer,
-) *ExtendedTransport {
+) *extendedTransport {
 	if logOutput == nil {
 		logOutput = os.Stderr
 	}
@@ -184,21 +184,21 @@ func NewExtendedTransportWithLogger(
 	maxPool int,
 	timeout time.Duration,
 	logger *log.Logger,
-) *ExtendedTransport {
+) *extendedTransport {
 	config := &ExtendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
 	return NewExtendedTransportWithConfig(config)
 }
 
 // setupStreamContext is used to create a new stream context. This should be
 // called with the stream lock held.
-func (n *ExtendedTransport) setupStreamContext() {
+func (n *extendedTransport) setupStreamContext() {
 	ctx, cancel := context.WithCancel(context.Background())
 	n.streamCtx = ctx
 	n.streamCancel = cancel
 }
 
 // getStreamContext is used retrieve the current stream context.
-func (n *ExtendedTransport) getStreamContext() context.Context {
+func (n *extendedTransport) getStreamContext() context.Context {
 	n.streamCtxLock.RLock()
 	defer n.streamCtxLock.RUnlock()
 	return n.streamCtx
@@ -207,14 +207,14 @@ func (n *ExtendedTransport) getStreamContext() context.Context {
 // SetHeartbeatHandler is used to setup a heartbeat handler
 // as a fast-pass. This is to avoid head-of-line blocking from
 // disk IO.
-func (n *ExtendedTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
+func (n *extendedTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
 	n.heartbeatFnLock.Lock()
 	defer n.heartbeatFnLock.Unlock()
 	n.heartbeatFn = cb
 }
 
 // CloseStreams closes the current streams.
-func (n *ExtendedTransport) CloseStreams() {
+func (n *extendedTransport) CloseStreams() {
 	n.connPoolLock.Lock()
 	defer n.connPoolLock.Unlock()
 
@@ -239,7 +239,7 @@ func (n *ExtendedTransport) CloseStreams() {
 }
 
 // Close is used to stop the network transport.
-func (n *ExtendedTransport) Close() error {
+func (n *extendedTransport) Close() error {
 	n.shutdownLock.Lock()
 	defer n.shutdownLock.Unlock()
 
@@ -252,23 +252,23 @@ func (n *ExtendedTransport) Close() error {
 }
 
 // Consumer implements the Transport interface.
-func (n *ExtendedTransport) Consumer() <-chan raft.RPC {
+func (n *extendedTransport) Consumer() <-chan raft.RPC {
 	return n.raftConsumeCh
 }
 
 // CustomConsumeCh returns the channel to read custom rpc messages
 // from
-func (n *ExtendedTransport) CustomConsumeCh() <-chan raft.RPC {
+func (n *extendedTransport) CustomConsumeCh() <-chan raft.RPC {
 	return n.custConsumeCh
 }
 
 // LocalAddr implements the Transport interface.
-func (n *ExtendedTransport) LocalAddr() raft.ServerAddress {
+func (n *extendedTransport) LocalAddr() raft.ServerAddress {
 	return raft.ServerAddress(n.stream.Addr().String())
 }
 
 // IsShutdown is used to check if the transport is shutdown.
-func (n *ExtendedTransport) IsShutdown() bool {
+func (n *extendedTransport) IsShutdown() bool {
 	select {
 	case <-n.shutdownCh:
 		return true
@@ -278,7 +278,7 @@ func (n *ExtendedTransport) IsShutdown() bool {
 }
 
 // getExistingConn is used to grab a pooled connection.
-func (n *ExtendedTransport) getPooledConn(target raft.ServerAddress) *netConn {
+func (n *extendedTransport) getPooledConn(target raft.ServerAddress) *netConn {
 	n.connPoolLock.Lock()
 	defer n.connPoolLock.Unlock()
 
@@ -295,12 +295,12 @@ func (n *ExtendedTransport) getPooledConn(target raft.ServerAddress) *netConn {
 }
 
 // getConnFromAddressProvider returns a connection from the server address provider if available, or defaults to a connection using the target server address
-func (n *ExtendedTransport) getConnFromAddressProvider(id raft.ServerID, target raft.ServerAddress) (*netConn, error) {
+func (n *extendedTransport) getConnFromAddressProvider(id raft.ServerID, target raft.ServerAddress) (*netConn, error) {
 	address := n.getProviderAddressOrFallback(id, target)
 	return n.getConn(address)
 }
 
-func (n *ExtendedTransport) getProviderAddressOrFallback(id raft.ServerID, target raft.ServerAddress) raft.ServerAddress {
+func (n *extendedTransport) getProviderAddressOrFallback(id raft.ServerID, target raft.ServerAddress) raft.ServerAddress {
 	if n.serverAddressProvider != nil {
 		serverAddressOverride, err := n.serverAddressProvider.ServerAddr(id)
 		if err != nil {
@@ -313,7 +313,7 @@ func (n *ExtendedTransport) getProviderAddressOrFallback(id raft.ServerID, targe
 }
 
 // getConn is used to get a connection from the pool.
-func (n *ExtendedTransport) getConn(target raft.ServerAddress) (*netConn, error) {
+func (n *extendedTransport) getConn(target raft.ServerAddress) (*netConn, error) {
 	// Check for a pooled conn
 	if conn := n.getPooledConn(target); conn != nil {
 		return conn, nil
@@ -342,7 +342,7 @@ func (n *ExtendedTransport) getConn(target raft.ServerAddress) (*netConn, error)
 }
 
 // returnConn returns a connection back to the pool.
-func (n *ExtendedTransport) returnConn(conn *netConn) {
+func (n *extendedTransport) returnConn(conn *netConn) {
 	n.connPoolLock.Lock()
 	defer n.connPoolLock.Unlock()
 
@@ -358,7 +358,7 @@ func (n *ExtendedTransport) returnConn(conn *netConn) {
 
 // AppendEntriesPipeline returns an interface that can be used to pipeline
 // AppendEntries requests.
-func (n *ExtendedTransport) AppendEntriesPipeline(id raft.ServerID, target raft.ServerAddress) (raft.AppendPipeline, error) {
+func (n *extendedTransport) AppendEntriesPipeline(id raft.ServerID, target raft.ServerAddress) (raft.AppendPipeline, error) {
 	// Get a connection
 	conn, err := n.getConnFromAddressProvider(id, target)
 	if err != nil {
@@ -370,23 +370,23 @@ func (n *ExtendedTransport) AppendEntriesPipeline(id raft.ServerID, target raft.
 }
 
 // AppendEntries implements the Transport interface.
-func (n *ExtendedTransport) AppendEntries(id raft.ServerID, target raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
+func (n *extendedTransport) AppendEntries(id raft.ServerID, target raft.ServerAddress, args *raft.AppendEntriesRequest, resp *raft.AppendEntriesResponse) error {
 	return n.genericRPC(id, target, rpcAppendEntries, args, resp)
 }
 
 // RequestVote implements the Transport interface.
-func (n *ExtendedTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
+func (n *extendedTransport) RequestVote(id raft.ServerID, target raft.ServerAddress, args *raft.RequestVoteRequest, resp *raft.RequestVoteResponse) error {
 	return n.genericRPC(id, target, rpcRequestVote, args, resp)
 }
 
 // JoinCluster implements a method to inform an existing cluster
 // that a node wants to join
-func (n *ExtendedTransport) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
+func (n *extendedTransport) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
 	return n.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 
 // genericRPC handles a simple request/response raft.RPC.
-func (n *ExtendedTransport) genericRPC(id raft.ServerID, target raft.ServerAddress, rpcType uint8, args interface{}, resp interface{}) error {
+func (n *extendedTransport) genericRPC(id raft.ServerID, target raft.ServerAddress, rpcType uint8, args interface{}, resp interface{}) error {
 	// Get a conn
 	conn, err := n.getConnFromAddressProvider(id, target)
 	if err != nil {
@@ -412,7 +412,7 @@ func (n *ExtendedTransport) genericRPC(id raft.ServerID, target raft.ServerAddre
 }
 
 // InstallSnapshot implements the Transport interface.
-func (n *ExtendedTransport) InstallSnapshot(id raft.ServerID, target raft.ServerAddress, args *raft.InstallSnapshotRequest, resp *raft.InstallSnapshotResponse, data io.Reader) error {
+func (n *extendedTransport) InstallSnapshot(id raft.ServerID, target raft.ServerAddress, args *raft.InstallSnapshotRequest, resp *raft.InstallSnapshotResponse, data io.Reader) error {
 	// Get a conn, always close for InstallSnapshot
 	conn, err := n.getConnFromAddressProvider(id, target)
 	if err != nil {
@@ -450,18 +450,18 @@ func (n *ExtendedTransport) InstallSnapshot(id raft.ServerID, target raft.Server
 }
 
 // EncodePeer implements the Transport interface.
-func (n *ExtendedTransport) EncodePeer(id raft.ServerID, p raft.ServerAddress) []byte {
+func (n *extendedTransport) EncodePeer(id raft.ServerID, p raft.ServerAddress) []byte {
 	address := n.getProviderAddressOrFallback(id, p)
 	return []byte(address)
 }
 
 // DecodePeer implements the Transport interface.
-func (n *ExtendedTransport) DecodePeer(buf []byte) raft.ServerAddress {
+func (n *extendedTransport) DecodePeer(buf []byte) raft.ServerAddress {
 	return raft.ServerAddress(buf)
 }
 
 // listen is used to handling incoming connections.
-func (n *ExtendedTransport) listen() {
+func (n *extendedTransport) listen() {
 	for {
 		// Accept incoming connections
 		conn, err := n.stream.Accept()
@@ -482,7 +482,7 @@ func (n *ExtendedTransport) listen() {
 // handleConn is used to handle an inbound connection for its lifespan. The
 // handler will exit when the passed context is cancelled or the connection is
 // closed.
-func (n *ExtendedTransport) handleConn(connCtx context.Context, conn net.Conn) {
+func (n *extendedTransport) handleConn(connCtx context.Context, conn net.Conn) {
 	defer conn.Close()
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
@@ -511,7 +511,7 @@ func (n *ExtendedTransport) handleConn(connCtx context.Context, conn net.Conn) {
 }
 
 // handleCommand is used to decode and dispatch a single command.
-func (n *ExtendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, enc *codec.Encoder) error {
+func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, enc *codec.Encoder) error {
 	// Get the rpc type
 	rpcType, err := r.ReadByte()
 	if err != nil {
@@ -666,7 +666,7 @@ func sendRPC(conn *netConn, rpcType uint8, args interface{}) error {
 
 // newNetPipeline is used to construct a netPipeline from a given
 // transport and connection.
-func newNetPipeline(trans *ExtendedTransport, conn *netConn) *netPipeline {
+func newNetPipeline(trans *extendedTransport, conn *netConn) *netPipeline {
 	n := &netPipeline{
 		conn:         conn,
 		trans:        trans,

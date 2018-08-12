@@ -7,10 +7,6 @@ import (
 	"github.com/jakoblorz/raft"
 )
 
-var (
-	node *raft.Node
-)
-
 func main() {
 
 	p := &Protocol{
@@ -18,7 +14,7 @@ func main() {
 		values:    make(map[string]interface{}),
 	}
 
-	node, token, err := raft.Init(p, p)
+	_, err := raft.Init(p)
 	if err != nil {
 		log.Fatalf("error occured: %v", err)
 	}
