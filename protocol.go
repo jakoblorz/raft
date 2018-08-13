@@ -5,13 +5,17 @@ import (
 	"time"
 )
 
+type MessagePtrFactory func() interface{}
+
+type TypeTranslator map[uint8]MessagePtrFactory
+
 // TypeTranslatorGetter represents a protocol struct which can match and
 // unmarshall incomming non-raft messages
 type TypeTranslatorGetter interface {
 
 	// GetTypeTranslator matches a rpc type to a umarshalled struct ptr (the interface{})
 	// and an indicator if the rpc type is known (the bool)
-	GetTypeTranslator(uint8) (interface{}, bool)
+	GetTypeTranslator() TypeTranslator
 }
 
 // MessageReceiveEventHandler represents a protocol interface which is
@@ -73,22 +77,26 @@ func (c *protocolWrapper) GetSharedState() SharedState {
 	return nil
 }
 
-func (c *protocolWrapper) GetTypeTranslator(rpcType uint8) (interface{}, bool) {
-	ji, jb := c.joinProtoc.GetTypeTranslator(rpcType)
-	if jb {
-		return ji, jb
-	}
+func (c *protocolWrapper) GetTypeTranslator() TypeTranslator {
+
+	jtt := c.joinProtoc.GetTypeTranslator()
 
 	if c.custProtoc == nil {
-		return ji, jb
+		return jtt
 	}
 
-	// block any rpcTypes that might interfere with raft protocol
-	if rpcType < RPCHeaderOffset {
-		return nil, false
+	ctt := c.custProtoc.GetTypeTranslator()
+	for k, v := range ctt {
+
+		// block any rpcTypes that might interfere with raft protocol
+		if k < RPCHeaderOffset {
+			return nil
+		}
+
+		jtt[k] = v
 	}
 
-	return c.custProtoc.GetTypeTranslator(rpcType)
+	return jtt
 }
 
 func (c *protocolWrapper) OnMessageReceive(u uint8, i interface{}) (interface{}, error) {

@@ -20,13 +20,14 @@ func (j *joinProtocol) GetSharedState() SharedState {
 	return nil
 }
 
-func (j *joinProtocol) GetTypeTranslator(t uint8) (interface{}, bool) {
+func (j *joinProtocol) GetTypeTranslator() TypeTranslator {
 
-	if t == rpcJoinCluster {
-		return &joinClusterRequest{}, true
+	var m = make(map[uint8]MessagePtrFactory)
+	m[rpcJoinCluster] = func() interface{} {
+		return &joinClusterRequest{}
 	}
 
-	return nil, false
+	return m
 }
 
 func (j *joinProtocol) OnMessageReceive(u uint8, req interface{}) (interface{}, error) {

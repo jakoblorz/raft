@@ -75,7 +75,7 @@ type extendedTransport struct {
 
 	maxPool int
 
-	messageMatcher TypeTranslatorGetter
+	messageMatcher TypeTranslator
 
 	serverAddressProvider raft.ServerAddressProvider
 
@@ -152,7 +152,7 @@ func newExtendedTransportWithConfig(
 		custConsumeCh:         make(chan rpc),
 		logger:                config.Logger,
 		maxPool:               config.MaxPool,
-		messageMatcher:        config.MessageMatcher,
+		messageMatcher:        config.MessageMatcher.GetTypeTranslator(),
 		shutdownCh:            make(chan struct{}),
 		stream:                config.Stream,
 		timeout:               config.Timeout,
@@ -571,17 +571,18 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		protRPC.Reader = io.LimitReader(r, req.Size)
 
 	default:
-		req, ok := n.messageMatcher.GetTypeTranslator(rpcType)
-		if !ok {
+		factory := n.messageMatcher[rpcType]
+		if factory == nil {
 			return fmt.Errorf("unknown rpc type %d", rpcType)
 		}
+
+		req := factory()
 		if err := dec.Decode(req); err != nil {
 			return err
 		}
 		custRPC.CommandType = rpcType
 		custRPC.Command = req
 		isCustom = true
-
 	}
 
 	// Check for heartbeat fast-path
