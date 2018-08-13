@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"sync"
@@ -40,10 +41,10 @@ func (p *Protocol) SharedState() raft.SharedState {
 	return p
 }
 
-func (p *Protocol) Apply(r io.Reader) {
+func (p *Protocol) AppendLogMessage(c []byte) {
 	command := SetCommand{}
 
-	dec := codec.NewDecoder(r, &codec.MsgpackHandle{})
+	dec := codec.NewDecoder(bytes.NewReader(c), &codec.MsgpackHandle{})
 	dec.Decode(&command)
 
 	p.set(command.Key, command.Value)

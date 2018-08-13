@@ -1,14 +1,13 @@
 package raft
 
 import (
-	"bytes"
 	"io"
 
 	"github.com/hashicorp/raft"
 )
 
 type SharedState interface {
-	Apply(io.Reader)
+	AppendLogMessage([]byte)
 	Encode(io.Writer) error
 	Decode(io.Reader) error
 }
@@ -18,7 +17,7 @@ type fsm struct {
 }
 
 func (f *fsm) Apply(l *raft.Log) interface{} {
-	f.state.Apply(bytes.NewReader(l.Data))
+	f.state.AppendLogMessage(l.Data)
 	return nil
 }
 
