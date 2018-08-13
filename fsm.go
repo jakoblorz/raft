@@ -6,9 +6,24 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+// SharedState is a interface representing
+// a log / transaction based state which
+// can be shared over multiple nodes.
+// The raft protocol ensures that the state
+// is equalized on all nodes
 type SharedState interface {
+
+	// AppendLogMessage decodes the log message
+	// and applies the represented change to the
+	// local state
 	AppendLogMessage([]byte)
+
+	// Encode encodes the current state into
+	// the writer
 	Encode(io.Writer) error
+
+	// Decode decodes a state from the reader
+	// into the local state
 	Decode(io.Reader) error
 }
 

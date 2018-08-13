@@ -136,6 +136,18 @@ func (n *localNode) join(id raft.ServerID, target raft.ServerAddress, args *join
 	return n.transport.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 
+func (n *localNode) GetID() string {
+	return string(n.NodeID)
+}
+
+func (n *localNode) GetAddress() string {
+	return string(n.transport.LocalAddr())
+}
+
+func (n *localNode) GetAuthToken() string {
+	return n.token
+}
+
 func (n *localNode) AppendLogMessage(m []byte, t time.Duration) error {
 	return n.raft.Apply(m, t).Error()
 }

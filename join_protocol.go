@@ -20,7 +20,7 @@ func (j *joinProtocol) GetSharedState() SharedState {
 	return nil
 }
 
-func (j *joinProtocol) GetTypeTranslator() TypeTranslator {
+func (j *joinProtocol) GetTypeTranslator() MessageTypeTranslator {
 
 	var m = make(map[uint8]MessagePtrFactory)
 	m[rpcJoinCluster] = func() interface{} {

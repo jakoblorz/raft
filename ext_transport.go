@@ -75,7 +75,7 @@ type extendedTransport struct {
 
 	maxPool int
 
-	messageMatcher TypeTranslator
+	messageMatcher MessageTypeTranslator
 
 	serverAddressProvider raft.ServerAddressProvider
 
@@ -99,7 +99,7 @@ type extendedTransportConfig struct {
 	// ServerAddressProvider is used to override the target address when establishing a connection to invoke an raft.RPC
 	ServerAddressProvider raft.ServerAddressProvider
 
-	MessageMatcher TypeTranslatorGetter
+	MessageMatcher MessageTypeTranslatorGetter
 
 	Logger *log.Logger
 
@@ -173,7 +173,7 @@ func newExtendedTransportWithConfig(
 // the timeout by (SnapshotSize / TimeoutScale).
 func newExtendedTransport(
 	stream raft.StreamLayer,
-	matcher TypeTranslatorGetter, maxPool int,
+	matcher MessageTypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logOutput io.Writer,
 ) *extendedTransport {
@@ -191,7 +191,7 @@ func newExtendedTransport(
 // the timeout by (SnapshotSize / TimeoutScale).
 func newExtendedTransportWithLogger(
 	stream raft.StreamLayer,
-	matcher TypeTranslatorGetter, maxPool int,
+	matcher MessageTypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logger *log.Logger,
 ) *extendedTransport {

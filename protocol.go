@@ -5,33 +5,35 @@ import (
 	"time"
 )
 
+// MessagePtrFactory emits a new request struct ptr
 type MessagePtrFactory func() interface{}
 
-type TypeTranslator map[uint8]MessagePtrFactory
+// MessageTypeTranslator is a map associating rpc types
+// (uint8) to MessagePtrFactorys
+type MessageTypeTranslator map[uint8]MessagePtrFactory
 
-// TypeTranslatorGetter represents a protocol struct which can match and
-// unmarshall incomming non-raft messages
-type TypeTranslatorGetter interface {
+// MessageTypeTranslatorGetter implements
+// GetTypeTranslator() func
+type MessageTypeTranslatorGetter interface {
 
-	// GetTypeTranslator matches a rpc type to a umarshalled struct ptr (the interface{})
-	// and an indicator if the rpc type is known (the bool)
-	GetTypeTranslator() TypeTranslator
+	// GetTypeTranslator returns the protocol's
+	// type translator
+	GetTypeTranslator() MessageTypeTranslator
 }
 
 // MessageReceiveEventHandler represents a protocol interface which is
-// notified about incoming messages of which the rpc type is known
-// (see MessageMatcher's Match() func for more information about
-// known rpc types)
+// notified about incoming messages, properly decoded into the
+// interface{} with the rpc type
 type MessageReceiveEventHandler interface {
 
-	// OnMessageReceive is called when a message was recieved and properly
-	// decoded; return either an error or an struct ptr; both will
+	// OnMessageReceive is called when a message was recieved and has been
+	// properly decoded; return either an error or an struct ptr; both will
 	// be sent back to the requesting client
 	OnMessageReceive(uint8, interface{}) (interface{}, error)
 }
 
 // RemoteNode is a raft node which is not the local node.
-// This is supposed to be only a reference to this node.
+// This is supposed to only be a reference to this node.
 type RemoteNode interface {
 	GetID() string
 	GetAddress() string
@@ -39,9 +41,12 @@ type RemoteNode interface {
 
 // LocalNode is a raft node which is the local node.
 type LocalNode interface {
+	RemoteNode
+
 	AppendLogMessage([]byte, time.Duration) error
 	RemoteProcedureCall(RemoteNode, uint8, interface{}, interface{}) error
 	GetRemoteNodes() ([]RemoteNode, error)
+	GetAuthToken() string
 }
 
 // LocalNodeSetter represents a protocol interface which
@@ -51,15 +56,20 @@ type LocalNodeSetter interface {
 	SetLocalNode(LocalNode)
 }
 
+// SharedStateGetter implements the GetSharedState() func
 type SharedStateGetter interface {
+
+	// GetSharedState returns the SharedState
 	GetSharedState() SharedState
 }
 
+// MessageProtocol is a message oriented protocol
+// sharing a common state over all nodes of the "overlay"
+// network
 type MessageProtocol interface {
 	SharedStateGetter
-	TypeTranslatorGetter
 	LocalNodeSetter
-
+	MessageTypeTranslatorGetter
 	MessageReceiveEventHandler
 }
 
@@ -77,7 +87,7 @@ func (c *protocolWrapper) GetSharedState() SharedState {
 	return nil
 }
 
-func (c *protocolWrapper) GetTypeTranslator() TypeTranslator {
+func (c *protocolWrapper) GetTypeTranslator() MessageTypeTranslator {
 
 	jtt := c.joinProtoc.GetTypeTranslator()
 

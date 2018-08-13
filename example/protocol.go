@@ -23,17 +23,20 @@ func (p *Protocol) GetSharedState() raft.SharedState {
 	return p.fsm
 }
 
-func (p *Protocol) GetTypeTranslator(i uint8) (interface{}, bool) {
+func (p *Protocol) GetTypeTranslator() raft.MessageTypeTranslator {
 
-	if i == rpcGetRequest {
-		return &GetRequest{}, true
+	var m = make(map[uint8]raft.MessagePtrFactory)
+	m[rpcGetRequest] = func() interface{} {
+		return &GetRequest{}
+	}
+	m[rpcSetRequest] = func() interface{} {
+		return &SetRequest{}
+	}
+	m[rpcDeleteRequest] = func() interface{} {
+		return &DeleteRequest{}
 	}
 
-	if i == rpcSetRequest {
-		return &SetRequest{}, true
-	}
-
-	return nil, false
+	return m
 }
 
 func (p *Protocol) OnMessageReceive(u uint8, req interface{}) (interface{}, error) {
