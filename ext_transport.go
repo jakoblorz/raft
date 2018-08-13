@@ -22,8 +22,8 @@ const (
 	_
 	rpcHeaderOffset
 
-	// DefaultTimeoutScale is the default TimeoutScale in a NetworkTransport.
-	DefaultTimeoutScale = 256 * 1024 // 256KB
+	// defaultTimeoutScale is the default TimeoutScale in a NetworkTransport.
+	defaultTimeoutScale = 256 * 1024 // 256KB
 
 	// rpcMaxPipeline controls the maximum number of outstanding
 	// AppendEntries RPC calls.
