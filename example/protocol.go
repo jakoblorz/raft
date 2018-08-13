@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"errors"
-	"io"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/go-msgpack/codec"
@@ -12,58 +9,18 @@ import (
 )
 
 const (
-	rpcGetRequest uint8 = iota + raft.RPCHeaderOffset
-	rpcSetRequest       = iota
+	rpcGetRequest    uint8 = iota + raft.RPCHeaderOffset
+	rpcSetRequest          = iota
+	rpcDeleteRequest       = iota
 )
 
 type Protocol struct {
-	node raft.LocalNode `codec:"-"`
-
-	valueLock sync.Mutex `codec:"-"`
-	values    map[string]interface{}
-}
-
-func (p *Protocol) set(key string, value interface{}) {
-	p.valueLock.Lock()
-	defer p.valueLock.Unlock()
-
-	p.values[key] = value
-}
-
-func (p *Protocol) get(key string) interface{} {
-	p.valueLock.Lock()
-	defer p.valueLock.Unlock()
-
-	return p.values[key]
+	node raft.LocalNode
+	fsm  *fsm
 }
 
 func (p *Protocol) SharedState() raft.SharedState {
-	return p
-}
-
-func (p *Protocol) AppendLogMessage(c []byte) {
-	command := SetCommand{}
-
-	dec := codec.NewDecoder(bytes.NewReader(c), &codec.MsgpackHandle{})
-	dec.Decode(&command)
-
-	p.set(command.Key, command.Value)
-}
-
-func (p *Protocol) Encode(w io.Writer) error {
-	p.valueLock.Lock()
-	defer p.valueLock.Unlock()
-
-	enc := codec.NewEncoder(w, &codec.MsgpackHandle{})
-	return enc.Encode(&p)
-}
-
-func (p *Protocol) Decode(r io.Reader) error {
-	p.valueLock.Lock()
-	defer p.valueLock.Unlock()
-
-	dec := codec.NewDecoder(r, &codec.MsgpackHandle{})
-	return dec.Decode(&p)
+	return p.fsm
 }
 
 func (p *Protocol) Match(i uint8) (interface{}, bool) {
@@ -83,27 +40,35 @@ func (p *Protocol) Notify(u uint8, req interface{}) (interface{}, error) {
 
 	if get, ok := req.(*GetRequest); u == rpcGetRequest && ok {
 		return &GetResponse{
-			Value: p.get(get.Key),
+			Value: p.fsm.Get(get.Key),
 		}, nil
 	}
 
 	if set, ok := req.(*SetRequest); u == rpcSetRequest && ok {
-		command := SetCommand{
-			Key:   set.Key,
-			Value: set.Value,
-		}
-
 		var b []byte
-		enc := codec.NewEncoderBytes(&b, &codec.MsgpackHandle{})
-		enc.Encode(&command)
+		set.Encode(codec.NewEncoderBytes(&b, &codec.MsgpackHandle{}))
 
-		err := p.node.AppendLogMessage(b, raft.DefaultTimeoutScale*time.Second)
+		err := p.node.AppendLogMessage(b, 30*time.Second)
 		if err != nil {
 			return nil, err
 		}
 
 		return &SetResponse{
 			Key: set.Key,
+		}, nil
+	}
+
+	if del, ok := req.(*DeleteRequest); u == rpcDeleteRequest && ok {
+		var b []byte
+		del.Encode(codec.NewEncoderBytes(&b, &codec.MsgpackHandle{}))
+
+		err := p.node.AppendLogMessage(b, 30*time.Second)
+		if err != nil {
+			return nil, err
+		}
+
+		return &DeleteResponse{
+			Key: del.Key,
 		}, nil
 	}
 

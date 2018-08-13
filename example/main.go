@@ -10,8 +10,10 @@ import (
 func main() {
 
 	p := &Protocol{
-		valueLock: sync.Mutex{},
-		values:    make(map[string]interface{}),
+		fsm: &fsm{
+			valuesLock: sync.Mutex{},
+			values:     make(map[string]interface{}),
+		},
 	}
 
 	_, err := raft.Init(p)
