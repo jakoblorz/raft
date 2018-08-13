@@ -42,7 +42,7 @@ type localNode struct {
 	DatabaseDir string
 	BindAddr    string
 
-	consumeCh <-chan raft.RPC
+	consumeCh <-chan rpc
 
 	raft *raft.Raft
 
@@ -124,7 +124,7 @@ func (n *localNode) listen() {
 		if n.consumeCh != nil {
 			select {
 			case rpc := <-n.consumeCh:
-				resp, err := n.protocol.Notify(rpc.Command)
+				resp, err := n.protocol.Notify(rpc.CommandType, rpc.Command)
 				rpc.Respond(resp, err)
 			default:
 			}

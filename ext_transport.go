@@ -30,6 +30,18 @@ const (
 	rpcMaxPipeline = 128
 )
 
+type rpc struct {
+	Command     interface{}
+	CommandType uint8
+	Reader      io.Reader
+	RespChan    chan<- raft.RPCResponse
+}
+
+// Respond is used to respond with a response, error or both
+func (r *rpc) Respond(resp interface{}, err error) {
+	r.RespChan <- raft.RPCResponse{Response: resp, Error: err}
+}
+
 /*
 
 extendedTransport provides a network based transport that can be
@@ -54,7 +66,7 @@ type extendedTransport struct {
 	connPoolLock sync.Mutex
 
 	raftConsumeCh chan raft.RPC
-	custConsumeCh chan raft.RPC
+	custConsumeCh chan rpc
 
 	heartbeatFn     func(raft.RPC)
 	heartbeatFnLock sync.Mutex
@@ -137,7 +149,7 @@ func NewExtendedTransportWithConfig(
 	trans := &extendedTransport{
 		connPool:              make(map[raft.ServerAddress][]*netConn),
 		raftConsumeCh:         make(chan raft.RPC),
-		custConsumeCh:         make(chan raft.RPC),
+		custConsumeCh:         make(chan rpc),
 		logger:                config.Logger,
 		maxPool:               config.MaxPool,
 		messageMatcher:        config.MessageMatcher,
@@ -258,7 +270,7 @@ func (n *extendedTransport) Consumer() <-chan raft.RPC {
 
 // CustomConsumeCh returns the channel to read custom rpc messages
 // from
-func (n *extendedTransport) CustomConsumeCh() <-chan raft.RPC {
+func (n *extendedTransport) CustomConsumeCh() <-chan rpc {
 	return n.custConsumeCh
 }
 
@@ -520,7 +532,10 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 
 	// Create the raft.RPC object
 	respCh := make(chan raft.RPCResponse, 1)
-	rpc := raft.RPC{
+	protRPC := raft.RPC{
+		RespChan: respCh,
+	}
+	custRPC := rpc{
 		RespChan: respCh,
 	}
 
@@ -533,7 +548,7 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		if err := dec.Decode(&req); err != nil {
 			return err
 		}
-		rpc.Command = &req
+		protRPC.Command = &req
 
 		// Check if this is a heartbeat
 		if req.Term != 0 && req.Leader != nil &&
@@ -547,15 +562,15 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		if err := dec.Decode(&req); err != nil {
 			return err
 		}
-		rpc.Command = &req
+		protRPC.Command = &req
 
 	case rpcInstallSnapshot:
 		var req raft.InstallSnapshotRequest
 		if err := dec.Decode(&req); err != nil {
 			return err
 		}
-		rpc.Command = &req
-		rpc.Reader = io.LimitReader(r, req.Size)
+		protRPC.Command = &req
+		protRPC.Reader = io.LimitReader(r, req.Size)
 
 	default:
 		req, ok := n.messageMatcher.Match(rpcType)
@@ -565,7 +580,8 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		if err := dec.Decode(req); err != nil {
 			return err
 		}
-		rpc.Command = req
+		custRPC.CommandType = rpcType
+		custRPC.Command = req
 		isCustom = true
 
 	}
@@ -576,7 +592,7 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		fn := n.heartbeatFn
 		n.heartbeatFnLock.Unlock()
 		if fn != nil {
-			fn(rpc)
+			fn(protRPC)
 			goto RESP
 		}
 	}
@@ -584,13 +600,13 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 	// Dispatch the raft.RPC
 	if isCustom {
 		select {
-		case n.custConsumeCh <- rpc:
+		case n.custConsumeCh <- custRPC:
 		case <-n.shutdownCh:
 			return raft.ErrTransportShutdown
 		}
 	} else {
 		select {
-		case n.raftConsumeCh <- rpc:
+		case n.raftConsumeCh <- protRPC:
 		case <-n.shutdownCh:
 			return raft.ErrTransportShutdown
 		}

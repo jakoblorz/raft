@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"errors"
 	"time"
 )
 
@@ -22,7 +23,7 @@ type MessageNotificator interface {
 	// Notify is called when a message was recieved and properly
 	// decoded; return either an error or an struct ptr; both will
 	// be sent back to the requesting client
-	Notify(interface{}) (interface{}, error)
+	Notify(uint8, interface{}) (interface{}, error)
 }
 
 // RemoteNode is a raft node which is not the local node.
@@ -90,8 +91,8 @@ func (c *protocolWrapper) Match(rpcType uint8) (interface{}, bool) {
 	return c.custProtoc.Match(rpcType)
 }
 
-func (c *protocolWrapper) Notify(i interface{}) (interface{}, error) {
-	ji, je := c.joinProtoc.Notify(i)
+func (c *protocolWrapper) Notify(u uint8, i interface{}) (interface{}, error) {
+	ji, je := c.joinProtoc.Notify(u, i)
 	if !(je == nil && ji == nil) {
 		return ji, je
 	}
@@ -101,11 +102,11 @@ func (c *protocolWrapper) Notify(i interface{}) (interface{}, error) {
 	}
 
 	// block any rpcType that might interfere with raft protocol
-	// if u <= rpcJoinCluster {
-	// 	return nil, errors.New("[ERR] raft internal rpc message reached custom protocol")
-	// }
+	if u <= rpcJoinCluster {
+		return nil, errors.New("[ERR] raft internal rpc message reached custom protocol")
+	}
 
-	return c.custProtoc.Notify(i)
+	return c.custProtoc.Notify(u, i)
 }
 
 func (c *protocolWrapper) ReceiveLocalNode(node LocalNode) {

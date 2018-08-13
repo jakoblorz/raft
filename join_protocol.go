@@ -29,10 +29,10 @@ func (j *joinProtocol) Match(t uint8) (interface{}, bool) {
 	return nil, false
 }
 
-func (j *joinProtocol) Notify(req interface{}) (interface{}, error) {
+func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
 
 	// check if the req can be parsed to a JoinClusterRequest pointer
-	if join, ok := req.(*JoinClusterRequest); ok {
+	if join, ok := req.(*JoinClusterRequest); u == rpcJoinCluster && ok {
 		j.Logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)
 
 		// compare tokens; in case this node is a leader or a
