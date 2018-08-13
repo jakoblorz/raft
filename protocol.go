@@ -5,25 +5,25 @@ import (
 	"time"
 )
 
-// MessageMatcher represents a protocol struct which can match and
+// TypeTranslatorGetter represents a protocol struct which can match and
 // unmarshall incomming non-raft messages
-type MessageMatcher interface {
+type TypeTranslatorGetter interface {
 
-	// Match matches a rpc type to a umarshalled struct ptr (the interface{})
+	// GetTypeTranslator matches a rpc type to a umarshalled struct ptr (the interface{})
 	// and an indicator if the rpc type is known (the bool)
-	Match(uint8) (interface{}, bool)
+	GetTypeTranslator(uint8) (interface{}, bool)
 }
 
-// MessageNotificator represents a protocol interface which is
+// MessageReceiveEventHandler represents a protocol interface which is
 // notified about incoming messages of which the rpc type is known
 // (see MessageMatcher's Match() func for more information about
 // known rpc types)
-type MessageNotificator interface {
+type MessageReceiveEventHandler interface {
 
-	// Notify is called when a message was recieved and properly
+	// OnMessageReceive is called when a message was recieved and properly
 	// decoded; return either an error or an struct ptr; both will
 	// be sent back to the requesting client
-	Notify(uint8, interface{}) (interface{}, error)
+	OnMessageReceive(uint8, interface{}) (interface{}, error)
 }
 
 // RemoteNode is a raft node which is not the local node.
@@ -37,26 +37,26 @@ type RemoteNode interface {
 type LocalNode interface {
 	AppendLogMessage([]byte, time.Duration) error
 	RemoteProcedureCall(RemoteNode, uint8, interface{}, interface{}) error
-	RemoteNodes() ([]RemoteNode, error)
+	GetRemoteNodes() ([]RemoteNode, error)
 }
 
-// LocalNodeReceiver represents a protocol interface which
+// LocalNodeSetter represents a protocol interface which
 // receives a reference to a LocalNode once a cluster has been
 // joined / created.
-type LocalNodeReceiver interface {
-	ReceiveLocalNode(LocalNode)
+type LocalNodeSetter interface {
+	SetLocalNode(LocalNode)
 }
 
-type StatefulProtocol interface {
-	SharedState() SharedState
+type SharedStateGetter interface {
+	GetSharedState() SharedState
 }
 
 type MessageProtocol interface {
-	StatefulProtocol
+	SharedStateGetter
+	TypeTranslatorGetter
+	LocalNodeSetter
 
-	MessageMatcher
-	MessageNotificator
-	LocalNodeReceiver
+	MessageReceiveEventHandler
 }
 
 type protocolWrapper struct {
@@ -64,17 +64,17 @@ type protocolWrapper struct {
 	custProtoc MessageProtocol
 }
 
-func (c *protocolWrapper) SharedState() SharedState {
+func (c *protocolWrapper) GetSharedState() SharedState {
 
 	if c.custProtoc != nil {
-		return c.custProtoc.SharedState()
+		return c.custProtoc.GetSharedState()
 	}
 
 	return nil
 }
 
-func (c *protocolWrapper) Match(rpcType uint8) (interface{}, bool) {
-	ji, jb := c.joinProtoc.Match(rpcType)
+func (c *protocolWrapper) GetTypeTranslator(rpcType uint8) (interface{}, bool) {
+	ji, jb := c.joinProtoc.GetTypeTranslator(rpcType)
 	if jb {
 		return ji, jb
 	}
@@ -88,11 +88,11 @@ func (c *protocolWrapper) Match(rpcType uint8) (interface{}, bool) {
 		return nil, false
 	}
 
-	return c.custProtoc.Match(rpcType)
+	return c.custProtoc.GetTypeTranslator(rpcType)
 }
 
-func (c *protocolWrapper) Notify(u uint8, i interface{}) (interface{}, error) {
-	ji, je := c.joinProtoc.Notify(u, i)
+func (c *protocolWrapper) OnMessageReceive(u uint8, i interface{}) (interface{}, error) {
+	ji, je := c.joinProtoc.OnMessageReceive(u, i)
 	if !(je == nil && ji == nil) {
 		return ji, je
 	}
@@ -106,13 +106,13 @@ func (c *protocolWrapper) Notify(u uint8, i interface{}) (interface{}, error) {
 		return nil, errors.New("[ERR] raft internal rpc message reached custom protocol")
 	}
 
-	return c.custProtoc.Notify(u, i)
+	return c.custProtoc.OnMessageReceive(u, i)
 }
 
-func (c *protocolWrapper) ReceiveLocalNode(node LocalNode) {
-	c.joinProtoc.ReceiveLocalNode(node)
+func (c *protocolWrapper) SetLocalNode(node LocalNode) {
+	c.joinProtoc.SetLocalNode(node)
 
 	if c.custProtoc != nil {
-		c.custProtoc.ReceiveLocalNode(node)
+		c.custProtoc.SetLocalNode(node)
 	}
 }

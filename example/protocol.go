@@ -19,11 +19,11 @@ type Protocol struct {
 	fsm  *fsm
 }
 
-func (p *Protocol) SharedState() raft.SharedState {
+func (p *Protocol) GetSharedState() raft.SharedState {
 	return p.fsm
 }
 
-func (p *Protocol) Match(i uint8) (interface{}, bool) {
+func (p *Protocol) GetTypeTranslator(i uint8) (interface{}, bool) {
 
 	if i == rpcGetRequest {
 		return &GetRequest{}, true
@@ -36,7 +36,7 @@ func (p *Protocol) Match(i uint8) (interface{}, bool) {
 	return nil, false
 }
 
-func (p *Protocol) Notify(u uint8, req interface{}) (interface{}, error) {
+func (p *Protocol) OnMessageReceive(u uint8, req interface{}) (interface{}, error) {
 
 	if get, ok := req.(*GetRequest); u == rpcGetRequest && ok {
 		return &GetResponse{
@@ -75,6 +75,6 @@ func (p *Protocol) Notify(u uint8, req interface{}) (interface{}, error) {
 	return nil, errors.New("request could not be identified")
 }
 
-func (p *Protocol) ReceiveLocalNode(node raft.LocalNode) {
+func (p *Protocol) SetLocalNode(node raft.LocalNode) {
 	p.node = node
 }

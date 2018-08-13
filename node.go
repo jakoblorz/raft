@@ -82,7 +82,7 @@ func (n *localNode) prepare(cProtocol MessageProtocol) error {
 		custProtoc: cProtocol,
 	}
 
-	n.state = protocol.SharedState()
+	n.state = protocol.GetSharedState()
 
 	transport, err := newTCPTransportWithLogger(n.BindAddr, advertise, protocol, 3, 10*time.Second, logger)
 	if err != nil {
@@ -112,7 +112,7 @@ func (n *localNode) prepare(cProtocol MessageProtocol) error {
 	n.raft = r
 	jProtocol.raft = r
 
-	protocol.ReceiveLocalNode(n)
+	protocol.SetLocalNode(n)
 	n.protocol = protocol
 
 	return nil
@@ -124,7 +124,7 @@ func (n *localNode) listen() {
 		if n.consumeCh != nil {
 			select {
 			case rpc := <-n.consumeCh:
-				resp, err := n.protocol.Notify(rpc.CommandType, rpc.Command)
+				resp, err := n.protocol.OnMessageReceive(rpc.CommandType, rpc.Command)
 				rpc.Respond(resp, err)
 			default:
 			}
@@ -149,7 +149,7 @@ func (n *localNode) RemoteProcedureCall(r RemoteNode, t uint8, a interface{}, re
 	return n.transport.genericRPC(raft.ServerID(r.GetID()), raft.ServerAddress(r.GetAddress()), t, a, res)
 }
 
-func (n *localNode) RemoteNodes() ([]RemoteNode, error) {
+func (n *localNode) GetRemoteNodes() ([]RemoteNode, error) {
 
 	configFuture := n.raft.GetConfiguration()
 	if err := configFuture.Error(); err != nil {

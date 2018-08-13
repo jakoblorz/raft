@@ -16,11 +16,11 @@ type joinProtocol struct {
 	Logger *log.Logger
 }
 
-func (j *joinProtocol) SharedState() SharedState {
+func (j *joinProtocol) GetSharedState() SharedState {
 	return nil
 }
 
-func (j *joinProtocol) Match(t uint8) (interface{}, bool) {
+func (j *joinProtocol) GetTypeTranslator(t uint8) (interface{}, bool) {
 
 	if t == rpcJoinCluster {
 		return &joinClusterRequest{}, true
@@ -29,7 +29,7 @@ func (j *joinProtocol) Match(t uint8) (interface{}, bool) {
 	return nil, false
 }
 
-func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
+func (j *joinProtocol) OnMessageReceive(u uint8, req interface{}) (interface{}, error) {
 
 	// check if the req can be parsed to a JoinClusterRequest pointer
 	if join, ok := req.(*joinClusterRequest); u == rpcJoinCluster && ok {
@@ -92,6 +92,6 @@ func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
 	return nil, nil
 }
 
-func (j *joinProtocol) ReceiveLocalNode(node LocalNode) {
+func (j *joinProtocol) SetLocalNode(node LocalNode) {
 	j.node = node
 }

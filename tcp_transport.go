@@ -26,8 +26,7 @@ type tcpStreamLayer struct {
 func newTCPTransport(
 	bindAddr string,
 	advertise net.Addr,
-	matcher MessageMatcher,
-	maxPool int,
+	matcher TypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logOutput io.Writer,
 ) (*extendedTransport, error) {
@@ -41,8 +40,7 @@ func newTCPTransport(
 func newTCPTransportWithLogger(
 	bindAddr string,
 	advertise net.Addr,
-	matcher MessageMatcher,
-	maxPool int,
+	matcher TypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logger *log.Logger,
 ) (*extendedTransport, error) {

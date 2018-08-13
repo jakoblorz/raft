@@ -75,7 +75,7 @@ type extendedTransport struct {
 
 	maxPool int
 
-	messageMatcher MessageMatcher
+	messageMatcher TypeTranslatorGetter
 
 	serverAddressProvider raft.ServerAddressProvider
 
@@ -99,7 +99,7 @@ type extendedTransportConfig struct {
 	// ServerAddressProvider is used to override the target address when establishing a connection to invoke an raft.RPC
 	ServerAddressProvider raft.ServerAddressProvider
 
-	MessageMatcher MessageMatcher
+	MessageMatcher TypeTranslatorGetter
 
 	Logger *log.Logger
 
@@ -173,8 +173,7 @@ func newExtendedTransportWithConfig(
 // the timeout by (SnapshotSize / TimeoutScale).
 func newExtendedTransport(
 	stream raft.StreamLayer,
-	matcher MessageMatcher,
-	maxPool int,
+	matcher TypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logOutput io.Writer,
 ) *extendedTransport {
@@ -192,8 +191,7 @@ func newExtendedTransport(
 // the timeout by (SnapshotSize / TimeoutScale).
 func newExtendedTransportWithLogger(
 	stream raft.StreamLayer,
-	matcher MessageMatcher,
-	maxPool int,
+	matcher TypeTranslatorGetter, maxPool int,
 	timeout time.Duration,
 	logger *log.Logger,
 ) *extendedTransport {
@@ -573,7 +571,7 @@ func (n *extendedTransport) handleCommand(r *bufio.Reader, dec *codec.Decoder, e
 		protRPC.Reader = io.LimitReader(r, req.Size)
 
 	default:
-		req, ok := n.messageMatcher.Match(rpcType)
+		req, ok := n.messageMatcher.GetTypeTranslator(rpcType)
 		if !ok {
 			return fmt.Errorf("unknown rpc type %d", rpcType)
 		}
