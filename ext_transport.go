@@ -139,8 +139,8 @@ type netPipeline struct {
 	shutdownLock sync.Mutex
 }
 
-// NewExtendedTransportWithConfig creates a new network transport with the given config struct
-func NewExtendedTransportWithConfig(
+// newExtendedTransportWithConfig creates a new network transport with the given config struct
+func newExtendedTransportWithConfig(
 	config *extendedTransportConfig,
 ) *extendedTransport {
 	if config.Logger == nil {
@@ -167,11 +167,11 @@ func NewExtendedTransportWithConfig(
 	return trans
 }
 
-// NewExtendedTransport creates a new network transport with the given dialer
+// newExtendedTransport creates a new network transport with the given dialer
 // and listener. The maxPool controls how many connections we will pool. The
 // timeout is used to apply I/O deadlines. For InstallSnapshot, we multiply
 // the timeout by (SnapshotSize / TimeoutScale).
-func NewExtendedTransport(
+func newExtendedTransport(
 	stream raft.StreamLayer,
 	matcher MessageMatcher,
 	maxPool int,
@@ -183,14 +183,14 @@ func NewExtendedTransport(
 	}
 	logger := log.New(logOutput, "", log.LstdFlags)
 	config := &extendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
-	return NewExtendedTransportWithConfig(config)
+	return newExtendedTransportWithConfig(config)
 }
 
-// NewExtendedTransportWithLogger creates a new network transport with the given logger, dialer
+// newExtendedTransportWithLogger creates a new network transport with the given logger, dialer
 // and listener. The maxPool controls how many connections we will pool. The
 // timeout is used to apply I/O deadlines. For InstallSnapshot, we multiply
 // the timeout by (SnapshotSize / TimeoutScale).
-func NewExtendedTransportWithLogger(
+func newExtendedTransportWithLogger(
 	stream raft.StreamLayer,
 	matcher MessageMatcher,
 	maxPool int,
@@ -198,7 +198,7 @@ func NewExtendedTransportWithLogger(
 	logger *log.Logger,
 ) *extendedTransport {
 	config := &extendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
-	return NewExtendedTransportWithConfig(config)
+	return newExtendedTransportWithConfig(config)
 }
 
 // setupStreamContext is used to create a new stream context. This should be

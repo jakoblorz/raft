@@ -32,7 +32,7 @@ func newTCPTransport(
 	logOutput io.Writer,
 ) (*extendedTransport, error) {
 	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
-		return NewExtendedTransport(stream, matcher, maxPool, timeout, logOutput)
+		return newExtendedTransport(stream, matcher, maxPool, timeout, logOutput)
 	})
 }
 
@@ -47,7 +47,7 @@ func newTCPTransportWithLogger(
 	logger *log.Logger,
 ) (*extendedTransport, error) {
 	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
-		return NewExtendedTransportWithLogger(stream, matcher, maxPool, timeout, logger)
+		return newExtendedTransportWithLogger(stream, matcher, maxPool, timeout, logger)
 	})
 }
 
@@ -60,7 +60,7 @@ func newTCPTransportWithConfig(
 ) (*extendedTransport, error) {
 	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		config.Stream = stream
-		return NewExtendedTransportWithConfig(config)
+		return newExtendedTransportWithConfig(config)
 	})
 }
 
