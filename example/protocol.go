@@ -79,15 +79,15 @@ func (p *Protocol) Match(i uint8) (interface{}, bool) {
 	return nil, false
 }
 
-func (p *Protocol) Notify(req interface{}) (interface{}, error) {
+func (p *Protocol) Notify(u uint8, req interface{}) (interface{}, error) {
 
-	if get, ok := req.(*GetRequest); ok {
+	if get, ok := req.(*GetRequest); u == rpcGetRequest && ok {
 		return &GetResponse{
 			Value: p.get(get.Key),
 		}, nil
 	}
 
-	if set, ok := req.(*SetRequest); ok {
+	if set, ok := req.(*SetRequest); u == rpcSetRequest && ok {
 		command := SetCommand{
 			Key:   set.Key,
 			Value: set.Value,
