@@ -84,7 +84,7 @@ func (n *localNode) prepare(cProtocol MessageProtocol) error {
 
 	n.state = protocol.SharedState()
 
-	transport, err := NewTCPTransportWithLogger(n.BindAddr, advertise, protocol, 3, 10*time.Second, logger)
+	transport, err := newTCPTransportWithLogger(n.BindAddr, advertise, protocol, 3, 10*time.Second, logger)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (n *localNode) listen() {
 	}
 }
 
-func (n *localNode) join(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
+func (n *localNode) join(id raft.ServerID, target raft.ServerAddress, args *joinClusterRequest, resp *joinClusterResponse) error {
 	return n.transport.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 
@@ -191,12 +191,12 @@ func Join(customProtocol MessageProtocol, addr, token string) error {
 	err := n.join(
 		raft.ServerID(""),
 		raft.ServerAddress(addr),
-		&JoinClusterRequest{
+		&joinClusterRequest{
 			NodeID:     string(n.NodeID),
 			Token:      token,
 			RemoteAddr: n.BindAddr,
 		},
-		&JoinClusterResponse{})
+		&joinClusterResponse{})
 	if err != nil {
 		return err
 	}

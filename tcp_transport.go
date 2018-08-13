@@ -21,9 +21,9 @@ type tcpStreamLayer struct {
 	listener  *net.TCPListener
 }
 
-// NewTCPTransport returns a NetworkTransport that is built on top of
+// newTCPTransport returns a NetworkTransport that is built on top of
 // a TCP streaming transport layer.
-func NewTCPTransport(
+func newTCPTransport(
 	bindAddr string,
 	advertise net.Addr,
 	matcher MessageMatcher,
@@ -31,14 +31,14 @@ func NewTCPTransport(
 	timeout time.Duration,
 	logOutput io.Writer,
 ) (*extendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
+	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		return NewExtendedTransport(stream, matcher, maxPool, timeout, logOutput)
 	})
 }
 
-// NewTCPTransportWithLogger returns a NetworkTransport that is built on top of
+// newTCPTransportWithLogger returns a NetworkTransport that is built on top of
 // a TCP streaming transport layer, with log output going to the supplied Logger
-func NewTCPTransportWithLogger(
+func newTCPTransportWithLogger(
 	bindAddr string,
 	advertise net.Addr,
 	matcher MessageMatcher,
@@ -46,25 +46,25 @@ func NewTCPTransportWithLogger(
 	timeout time.Duration,
 	logger *log.Logger,
 ) (*extendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
+	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		return NewExtendedTransportWithLogger(stream, matcher, maxPool, timeout, logger)
 	})
 }
 
-// NewTCPTransportWithConfig returns a NetworkTransport that is built on top of
+// newTCPTransportWithConfig returns a NetworkTransport that is built on top of
 // a TCP streaming transport layer, using the given config struct.
-func NewTCPTransportWithConfig(
+func newTCPTransportWithConfig(
 	bindAddr string,
 	advertise net.Addr,
-	config *ExtendedTransportConfig,
+	config *extendedTransportConfig,
 ) (*extendedTransport, error) {
-	return newTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
+	return newExtTCPTransport(bindAddr, advertise, func(stream raft.StreamLayer) *extendedTransport {
 		config.Stream = stream
 		return NewExtendedTransportWithConfig(config)
 	})
 }
 
-func newTCPTransport(bindAddr string,
+func newExtTCPTransport(bindAddr string,
 	advertise net.Addr,
 	transportCreator func(stream raft.StreamLayer) *extendedTransport) (*extendedTransport, error) {
 	// Try to bind

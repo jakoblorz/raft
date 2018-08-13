@@ -23,7 +23,7 @@ func (j *joinProtocol) SharedState() SharedState {
 func (j *joinProtocol) Match(t uint8) (interface{}, bool) {
 
 	if t == rpcJoinCluster {
-		return &JoinClusterRequest{}, true
+		return &joinClusterRequest{}, true
 	}
 
 	return nil, false
@@ -32,7 +32,7 @@ func (j *joinProtocol) Match(t uint8) (interface{}, bool) {
 func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
 
 	// check if the req can be parsed to a JoinClusterRequest pointer
-	if join, ok := req.(*JoinClusterRequest); u == rpcJoinCluster && ok {
+	if join, ok := req.(*joinClusterRequest); u == rpcJoinCluster && ok {
 		j.Logger.Printf("[INFO] received join request from remote node %s at %s", join.NodeID, join.RemoteAddr)
 
 		// compare tokens; in case this node is a leader or a
@@ -47,7 +47,7 @@ func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
 		if leader := j.raft.Leader(); string(leader) != j.addr {
 			j.Logger.Printf("[INFO] this is not a leader, join request will be forwarded to leader at %s", leader)
 
-			var res = &JoinClusterResponse{}
+			var res = &joinClusterResponse{}
 			err := j.node.RemoteProcedureCall(&remoteNode{Address: leader}, rpcJoinCluster, req, res)
 			return res, err
 		}
@@ -83,7 +83,7 @@ func (j *joinProtocol) Notify(u uint8, req interface{}) (interface{}, error) {
 		}
 
 		j.Logger.Printf("[INFO] node %s at %s joined successfully", join.NodeID, join.RemoteAddr)
-		return &JoinClusterResponse{
+		return &joinClusterResponse{
 			LeaderAddr: string(j.raft.Leader()),
 			LastIndex:  j.raft.LastIndex(),
 		}, nil

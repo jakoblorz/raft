@@ -94,8 +94,8 @@ type extendedTransport struct {
 	TimeoutScale int
 }
 
-// ExtendedTransportConfig encapsulates configuration for the network transport layer.
-type ExtendedTransportConfig struct {
+// extendedTransportConfig encapsulates configuration for the network transport layer.
+type extendedTransportConfig struct {
 	// ServerAddressProvider is used to override the target address when establishing a connection to invoke an raft.RPC
 	ServerAddressProvider raft.ServerAddressProvider
 
@@ -141,7 +141,7 @@ type netPipeline struct {
 
 // NewExtendedTransportWithConfig creates a new network transport with the given config struct
 func NewExtendedTransportWithConfig(
-	config *ExtendedTransportConfig,
+	config *extendedTransportConfig,
 ) *extendedTransport {
 	if config.Logger == nil {
 		config.Logger = log.New(os.Stderr, "", log.LstdFlags)
@@ -182,7 +182,7 @@ func NewExtendedTransport(
 		logOutput = os.Stderr
 	}
 	logger := log.New(logOutput, "", log.LstdFlags)
-	config := &ExtendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
+	config := &extendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
 	return NewExtendedTransportWithConfig(config)
 }
 
@@ -197,7 +197,7 @@ func NewExtendedTransportWithLogger(
 	timeout time.Duration,
 	logger *log.Logger,
 ) *extendedTransport {
-	config := &ExtendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
+	config := &extendedTransportConfig{Stream: stream, MaxPool: maxPool, Timeout: timeout, Logger: logger, MessageMatcher: matcher}
 	return NewExtendedTransportWithConfig(config)
 }
 
@@ -393,7 +393,7 @@ func (n *extendedTransport) RequestVote(id raft.ServerID, target raft.ServerAddr
 
 // JoinCluster implements a method to inform an existing cluster
 // that a node wants to join
-func (n *extendedTransport) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *JoinClusterRequest, resp *JoinClusterResponse) error {
+func (n *extendedTransport) JoinCluster(id raft.ServerID, target raft.ServerAddress, args *joinClusterRequest, resp *joinClusterResponse) error {
 	return n.genericRPC(id, target, rpcJoinCluster, args, resp)
 }
 

@@ -2,7 +2,7 @@ package raft
 
 import "github.com/hashicorp/raft"
 
-type JoinClusterRequest struct {
+type joinClusterRequest struct {
 	raft.RPCHeader
 
 	Token      string
@@ -10,17 +10,17 @@ type JoinClusterRequest struct {
 	NodeID     string
 }
 
-func (j *JoinClusterRequest) GetRPCHeader() raft.RPCHeader {
+func (j *joinClusterRequest) GetRPCHeader() raft.RPCHeader {
 	return j.RPCHeader
 }
 
-type JoinClusterResponse struct {
+type joinClusterResponse struct {
 	raft.RPCHeader
 
 	LastIndex  uint64
 	LeaderAddr string
 }
 
-func (j *JoinClusterResponse) GetRPCHeader() raft.RPCHeader {
+func (j *joinClusterResponse) GetRPCHeader() raft.RPCHeader {
 	return j.RPCHeader
 }
